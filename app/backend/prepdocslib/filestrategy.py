@@ -148,3 +148,18 @@ class UploadUserFileStrategy:
             logging.warning("Filename is required to remove a file")
             return
         await self.search_manager.remove_content(filename, oid)
+
+class FetchUserFileStrategy:
+    """
+    Strategy for parsing a file that has already been uploaded to a ADLS2 storage account
+    """
+
+    def __init__(
+        self,
+        file_processors: dict[str, FileProcessor],
+    ):
+        self.file_processors = file_processors
+
+    async def fetch_file(self, file: File):
+        sections = await parse_file(file, self.file_processors)
+        return sections

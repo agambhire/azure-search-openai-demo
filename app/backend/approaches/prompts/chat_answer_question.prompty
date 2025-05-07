@@ -1,6 +1,7 @@
 ---
 name: Chat
-description: Answer a question (with chat history) using solely text sources.
+description: You are a multi-role AI system designed to handle complex tasks by simulating domain-specific specialists.
+
 model:
     api: chat
 sample:

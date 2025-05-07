@@ -3,7 +3,7 @@ import io
 import json
 import logging
 import mimetypes
-import os, re
+import os
 import time
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -69,6 +69,7 @@ from config import (
     CONFIG_DEFAULT_REASONING_EFFORT,
     CONFIG_GPT4V_DEPLOYED,
     CONFIG_INGESTER,
+    CONFIG_PARSER,
     CONFIG_LANGUAGE_PICKER_ENABLED,
     CONFIG_OPENAI_CLIENT,
     CONFIG_QUERY_REWRITING_ENABLED,
@@ -97,88 +98,15 @@ from prepdocs import (
     setup_file_processors,
     setup_search_info,
 )
-from prepdocslib.filestrategy import UploadUserFileStrategy
+from prepdocslib.filestrategy import UploadUserFileStrategy, FetchUserFileStrategy
 from prepdocslib.listfilestrategy import File
-from utils import markdown_to_html, join_nested_dict, generate_memo
+from utils import extract_matching_filename
 
 bp = Blueprint("routes", __name__, static_folder="static")
 # Fix Windows registry issue with mimetypes
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
 
-memo_format = {
-    'k1':{[{
-            'content': 'k1.1',
-            'role': 'user'
-          }
-        ],
-        [
-          {
-            'content': 'k1.2',
-            'role': 'user'
-          }
-        ],
-        [
-          {
-            'content': 'k1.3',
-            'role': 'user'
-          }
-        ]
-    },
-    'k2': [{
-            'content': 'k2',
-            'role': 'user'
-          }
-        ],
-    'k3': {
-        [
-          {
-            'content': 'k3.1',
-            'role': 'user'
-          }
-        ],
-        [
-          {
-            'content': 'k3.2',
-            'role': 'user'
-          }
-        ]
-    },
-    'k4': [{
-            'content': 'k4',
-            'role': 'user'
-          }
-        ],
-    'k5': [{
-            'content': 'k5',
-            'role': 'user'
-          }
-        ],  
-    'k6': {
-        [
-          {
-            'content': 'k6.1',
-            'role': 'user'
-          }
-        ],
-        [
-          {
-            'content': 'k6.2',
-            'role': 'user'
-          }
-        ]
-    },
-    'k7': [{
-            'content': 'k7',
-            'role': 'user'
-          }
-        ],
-    'k8': [{
-            'content': 'k8',
-            'role': 'user'
-          }
-        ]
-}
 
 @bp.route("/")
 async def index():
@@ -255,7 +183,6 @@ async def ask(auth_claims: dict[str, Any]):
     request_json = await request.get_json()
     context = request_json.get("context", {})
     context["auth_claims"] = auth_claims
-
     try:
         use_gpt4v = context.get("overrides", {}).get("use_gpt4v", False)
         approach: Approach
@@ -263,75 +190,12 @@ async def ask(auth_claims: dict[str, Any]):
             approach = cast(Approach, current_app.config[CONFIG_ASK_VISION_APPROACH])
         else:
             approach = cast(Approach, current_app.config[CONFIG_ASK_APPROACH])
-       
-        memo_section = {}
-        r = None
-        for key, val in memo_format.items():
-            sub_section = {}
-            
-            pipe_count = 0
-            if isinstance(val, dict):
-                for sub_key, sub_val in val.items():
-                    r = await approach.run(
-                        sub_val, context=context, session_state=request_json.get("session_state")
-                    )
-                    content = r['message']['content']
-                    pipe_count = len(re.findall(r"\|", content))
-                    if pipe_count > 0:
-                        content = markdown_to_html(content)
-                    sub_section[sub_key] = content
-                    # sub_section[sub_key] = remove_page_source(content)
-                memo_section[key] = sub_section
-            elif isinstance(val, list):
-                r = await approach.run(
-                        val, context=context, session_state=request_json.get("session_state")
-                    )
-                content = r['message']['content']
-                pipe_count = len(re.findall(r"\|", content))
-                if pipe_count > 0:
-                        content = markdown_to_html(content)
-                # memo_section[key] = remove_page_source(content)
-                memo_section[key] = content
-
-        response = {"message": join_nested_dict(memo_section)}
-           
-        try:
-            docx_filename = 'memo_generated.docx'
-            # docx_filename = check_and_update_blob_name(docx_filename)        
-       
-            doc = Document('memo_template.docx')
-            doc_new = generate_memo(doc, memo_section)
-            doc_new.save(docx_filename)        
-            logging.info("Memo Docx Created")
-           
-           
-            with open(docx_filename, "rb") as file:
-                file_content = file.read()
-        except FileNotFoundError:
-            return jsonify({"message": "Failed to generate Memo Document.", "status": "failed"}), 400
- 
-        except Exception as e:
-            logging.error("Error to upload Memo Docx - %s", str(e))
-       
-        user_oid = auth_claims["oid"]
-        user_blob_container_client: FileSystemClient = current_app.config[CONFIG_USER_BLOB_CONTAINER_CLIENT]
-        user_directory_client = user_blob_container_client.get_directory_client(user_oid)
-        await user_directory_client.get_directory_properties()  
-        await user_directory_client.set_access_control(owner=user_oid)
-        file_client = user_directory_client.get_file_client(docx_filename)
-       
-        # Upload the file content to the blob
-        file_io = io.BytesIO(file_content)
-        await file_client.upload_data(file_io, overwrite=True, metadata={"UploadedBy": user_oid})
-        file_io.seek(0)
- 
-        r['message']['content'] = "Successfully generated Business Combination Memo and stored on blob storage."
-
+        r = await approach.run(
+            request_json["messages"], context=context, session_state=request_json.get("session_state")
+        )
         return jsonify(r)
     except Exception as error:
         return error_response(error, "/ask")
- 
- 
 
 
 class JSONEncoder(json.JSONEncoder):
@@ -419,6 +283,48 @@ async def chat_stream(auth_claims: dict[str, Any]):
         return response
     except Exception as error:
         return error_response(error, "/chat")
+
+@bp.route("/chat_on_payroll/stream", methods=["POST"])
+@authenticated
+async def chat_stream_on_payroll(auth_claims: dict[str, Any]):
+    if not request.is_json:
+        return jsonify({"error": "request must be json"}), 415
+    request_json = await request.get_json()
+    context = request_json.get("context", {})
+    context["auth_claims"] = auth_claims
+    context["overrides"]["blob_client"] = current_app.config[CONFIG_USER_BLOB_CONTAINER_CLIENT]
+
+    try:
+        use_gpt4v = context.get("overrides", {}).get("use_gpt4v", False)
+        approach: Approach
+        if use_gpt4v and CONFIG_CHAT_VISION_APPROACH in current_app.config:
+            approach = cast(Approach, current_app.config[CONFIG_CHAT_VISION_APPROACH])
+        else:
+            approach = cast(Approach, current_app.config[CONFIG_CHAT_APPROACH])
+
+        # If session state is provided, persists the session state,
+        # else creates a new session_id depending on the chat history options enabled.
+        session_state = request_json.get("session_state")
+        if session_state is None:
+            session_state = create_session_id(
+                current_app.config[CONFIG_CHAT_HISTORY_COSMOS_ENABLED],
+                current_app.config[CONFIG_CHAT_HISTORY_BROWSER_ENABLED],
+            )
+
+        parser: FetchUserFileStrategy = current_app.config[CONFIG_PARSER]
+        context["overrides"]["doc_parser"] = parser
+        
+        result = await approach.run_stream(
+            request_json["messages"],
+            context=context,
+            session_state=session_state,
+        )
+        response = await make_response(format_as_ndjson(result))
+        response.timeout = None  # type: ignore
+        response.mimetype = "application/json-lines"
+        return response
+    except Exception as error:
+        return error_response(error, "/chat_on_payroll")
 
 
 # Send MSAL.js settings to the client UI
@@ -518,9 +424,9 @@ async def upload(auth_claims: dict[str, Any]):
     file_io = io.BufferedReader(file_io)
     await file_client.upload_data(file_io, overwrite=True, metadata={"UploadedBy": user_oid})
     file_io.seek(0)
-    ingester: UploadUserFileStrategy = current_app.config[CONFIG_INGESTER]
-    await ingester.add_file(File(content=file_io, acls={"oids": [user_oid]}, url=file_client.url))
-    return jsonify({"message": "File uploaded successfully"}), 200
+    # ingester: UploadUserFileStrategy = current_app.config[CONFIG_INGESTER]
+    # await ingester.add_file(File(content=file_io, acls={"oids": [user_oid]}, url=file_client.url))
+    return jsonify({"message": "File uploaded to blob storage successfully"}), 200
 
 
 @bp.post("/delete_uploaded")
@@ -533,8 +439,8 @@ async def delete_uploaded(auth_claims: dict[str, Any]):
     user_directory_client = user_blob_container_client.get_directory_client(user_oid)
     file_client = user_directory_client.get_file_client(filename)
     await file_client.delete_file()
-    ingester = current_app.config[CONFIG_INGESTER]
-    await ingester.remove_file(filename, user_oid)
+    # ingester = current_app.config[CONFIG_INGESTER]
+    # await ingester.remove_file(filename, user_oid)
     return jsonify({"message": f"File {filename} deleted successfully"}), 200
 
 
@@ -721,6 +627,11 @@ async def setup_clients():
             search_info=search_info, embeddings=text_embeddings_service, file_processors=file_processors
         )
         current_app.config[CONFIG_INGESTER] = ingester
+
+        parser = FetchUserFileStrategy(
+            file_processors=file_processors
+        )
+        current_app.config[CONFIG_PARSER] = parser
 
     # Used by the OpenAI SDK
     openai_client: AsyncOpenAI
