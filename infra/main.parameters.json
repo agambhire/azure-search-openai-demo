@@ -56,33 +56,6 @@
     "documentIntelligenceResourceGroupLocation": {
       "value": "${AZURE_DOCUMENTINTELLIGENCE_LOCATION}"
     },
-    "searchIndexName": {
-      "value": "${AZURE_SEARCH_INDEX=gptkbindex}"
-    },
-    "searchServiceName": {
-      "value": "${AZURE_SEARCH_SERVICE}"
-    },
-    "searchServiceResourceGroupName": {
-      "value": "${AZURE_SEARCH_SERVICE_RESOURCE_GROUP}"
-    },
-    "searchServiceLocation": {
-      "value": "${AZURE_SEARCH_SERVICE_LOCATION}"
-    },
-    "searchServiceSkuName": {
-      "value": "${AZURE_SEARCH_SERVICE_SKU=basic}"
-    },
-    "searchQueryLanguage": {
-      "value": "${AZURE_SEARCH_QUERY_LANGUAGE=en-us}"
-    },
-    "searchQuerySpeller": {
-      "value": "${AZURE_SEARCH_QUERY_SPELLER=lexicon}"
-    },
-    "searchServiceSemanticRankerLevel": {
-      "value": "${AZURE_SEARCH_SEMANTIC_RANKER=free}"
-    },
-    "searchServiceQueryRewriting": {
-      "value": "${AZURE_SEARCH_QUERY_REWRITING=false}"
-    },
     "defaultReasoningEffort": {
       "value": "${AZURE_OPENAI_REASONING_EFFORT=medium}"
     },
