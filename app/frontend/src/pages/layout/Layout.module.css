@@ -7,6 +7,11 @@
 .header {
     background-color: #222222;
     color: #f2f2f2;
+    position: fixed;
+    width: 100%;
+    top: 0;
+    left: 0;
+    z-index: 1000;
 }
 
 .headerContainer {
@@ -23,11 +28,13 @@
     align-items: center;
     color: #f2f2f2;
     text-decoration: none;
+    padding-left: 1rem; /* Ensure logo is not right at the edge */
 }
 
 .headerLogo {
-    height: 2rem;
+    height: 2.5rem; /* Slightly larger for better visibility */
     width: auto;
+    margin-right: 0.5rem; /* Add some space between logo and title */
 }
 
 .headerTitle {
