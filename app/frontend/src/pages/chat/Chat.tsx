@@ -261,6 +261,13 @@ const Chat = () => {
         }
     };
 
+    const handleUploadChatResponse = (chatResponse: ChatAppResponse) => {
+        // Add a user message indicating file upload, and then the AI's response
+        setAnswers((prevAnswers) => [...prevAnswers, ["File Uploaded", chatResponse]]);
+        // Scroll to the end of the chat after adding the new message
+        chatMessageStreamEnd.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
     const clearChat = () => {
         lastQuestionRef.current = "";
         error && setError(undefined);
@@ -385,7 +392,7 @@ const Chat = () => {
                 </div>
                 <div className={styles.commandsContainer}>
                     <ClearChatButton className={styles.commandButton} onClick={clearChat} disabled={!lastQuestionRef.current || isLoading} />
-                    {showUserUpload && <UploadFile className={styles.commandButton} disabled={!loggedIn} />}
+                    {showUserUpload && <UploadFile className={styles.commandButton} disabled={!loggedIn} onUploadSuccess={handleUploadChatResponse} />}
                     {/* <SettingsButton className={styles.commandButton} onClick={() => setIsConfigPanelOpen(!isConfigPanelOpen)} /> */}
                 </div>
             </div>

@@ -9,9 +9,12 @@ import { SimpleAPIResponse, uploadFileApi, deleteUploadedFileApi, listUploadedFi
 import { useLogin, getToken } from "../../authConfig";
 import styles from "./UploadFile.module.css";
 
+import { ChatAppResponse } from "../../api";
+
 interface Props {
     className?: string;
     disabled?: boolean;
+    onUploadSuccess?: (chatResponse: ChatAppResponse) => void;
 }
 
 export const UploadFile: React.FC<Props> = ({ className, disabled }: Props) => {
@@ -95,6 +98,18 @@ export const UploadFile: React.FC<Props> = ({ className, disabled }: Props) => {
             setIsUploading(false);
             setUploadedFileError(undefined);
             listUploadedFiles(idToken);
+
+            // Assuming the backend's upload API returns a ChatAppResponse or similar structure
+            // If your backend returns a different structure, you'll need to adapt this.
+            if (onUploadSuccess && response.message) {
+                // Construct a ChatAppResponse from the SimpleAPIResponse message
+                const chatResponse: ChatAppResponse = {
+                    message: { content: response.message, role: "ai" },
+                    context: { data_points: [], thoughts: [] }, // Populate as needed if your backend provides more context
+                    session_state: null
+                };
+                onUploadSuccess(chatResponse);
+            }
         } catch (error) {
             console.error(error);
             setIsUploading(false);
