@@ -101,6 +101,9 @@ class DocumentAnalysisParser(Parser):
                             "Unexpected error analyzing document for media description: %s. Proceeding with standard analysis.",
                             e,
                         )
+                except Exception as e:
+                    logger.error("Unexpected error analyzing document: %s", e)
+                    
 
             if file_analyzed is False:
                 poller = await document_intelligence_client.begin_analyze_document(

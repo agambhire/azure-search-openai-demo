@@ -20,6 +20,7 @@ from tenacity import (
     wait_random_exponential,
 )
 
+from quart import jsonify
 
 # AuthError is raised when the authentication token sent by the client UI cannot be parsed or there is an authentication error accessing the graph API
 class AuthError(Exception):
@@ -52,6 +53,7 @@ class AuthenticationHelper:
         self.client_app_id = client_app_id
         self.tenant_id = tenant_id
         self.authority = f"https://login.microsoftonline.com/{tenant_id}"
+        # self.authority = "https://auth-qa02.ey.com"
         # Depending on if requestedAccessTokenVersion is 1 or 2, the issuer and audience of the token may be different
         # See https://learn.microsoft.com/graph/api/resources/apiapplication
         self.valid_issuers = [
@@ -62,7 +64,7 @@ class AuthenticationHelper:
         # See https://learn.microsoft.com/entra/identity-platform/access-tokens#validate-the-issuer for more information on token validation
         self.key_url = f"{self.authority}/discovery/v2.0/keys"
 
-        if self.use_authentication:
+        if self.use_authentication and search_index:
             field_names = [field.name for field in search_index.fields] if search_index else []
             self.has_auth_fields = "oids" in field_names and "groups" in field_names
             self.require_access_control = require_access_control
@@ -71,6 +73,14 @@ class AuthenticationHelper:
             self.confidential_client = ConfidentialClientApplication(
                 server_app_id, authority=self.authority, client_credential=server_app_secret, token_cache=TokenCache()
             )
+        if self.use_authentication:
+                self.has_auth_fields = True
+                self.require_access_control = require_access_control
+                self.enable_global_documents = enable_global_documents
+                self.enable_unauthenticated_access = enable_unauthenticated_access
+                self.confidential_client = ConfidentialClientApplication(
+                    server_app_id, authority=self.authority, client_credential=server_app_secret, token_cache=TokenCache()
+                )
         else:
             self.has_auth_fields = False
             self.require_access_control = False
@@ -95,7 +105,7 @@ class AuthenticationHelper:
                     # Configures cache location. "sessionStorage" is more secure, but "localStorage" gives you SSO between tabs.
                     "cacheLocation": "localStorage",
                     # Set this to "true" if you are having issues on IE11 or Edge
-                    "storeAuthStateInCookie": False,
+                    "storeAuthStateInCookie": True,
                 },
             },
             "loginRequest": {
@@ -217,7 +227,6 @@ class AuthenticationHelper:
             auth_token = AuthenticationHelper.get_token_auth_header(headers)
             # Validate the token before use
             await self.validate_access_token(auth_token)
-
             # Use the on-behalf-of-flow to acquire another token for use with Microsoft Graph
             # See https://learn.microsoft.com/entra/identity-platform/v2-oauth2-on-behalf-of-flow for more information
             graph_resource_access_token = self.confidential_client.acquire_token_on_behalf_of(
@@ -247,13 +256,13 @@ class AuthenticationHelper:
         except AuthError as e:
             logging.exception("Exception getting authorization information - " + json.dumps(e.error))
             if self.require_access_control and not self.enable_unauthenticated_access:
-                raise
-            return {}
+                raise AuthError(error="Authorization header is expected", status_code=401)
+            return {}   
         except Exception:
             logging.exception("Exception getting authorization information")
             if self.require_access_control and not self.enable_unauthenticated_access:
                 raise
-            return {}
+            return jsonify({"Error": "Login required"}), 401 
 
     async def check_path_auth(self, path: str, auth_claims: dict[str, Any], search_client: SearchClient) -> bool:
         # Start with the standard security filter for all queries

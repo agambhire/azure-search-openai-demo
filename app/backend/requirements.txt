@@ -53,7 +53,8 @@ azure-monitor-opentelemetry==1.6.1
     # via -r requirements.in
 azure-monitor-opentelemetry-exporter==1.0.0b32
     # via azure-monitor-opentelemetry
-azure-search-documents==11.6.0b9
+azure-search-documents==11.6.0b12
+# azure-search-documents==11.6.0b9
     # via -r requirements.in
 azure-storage-blob==12.22.0
     # via
@@ -398,11 +399,13 @@ types-html5lib==1.1.11.20241018
     # via types-beautifulsoup4
 types-pillow==10.2.0.20240822
     # via -r requirements.in
-typing-extensions==4.12.2
+# typing-extensions==4.13.2
+typing-extensions==4.13.2
     # via
     #   -r requirements.in
     #   azure-ai-documentintelligence
     #   azure-core
+
     #   azure-cosmos
     #   azure-identity
     #   azure-search-documents

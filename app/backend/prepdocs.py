@@ -163,6 +163,10 @@ def setup_file_processors(
     content_understanding_endpoint: Union[str, None] = None,
 ):
     sentence_text_splitter = SentenceTextSplitter()
+    logger.info("Setting up file processors")
+    
+    logger.info("Document Intelligence Key: %s", document_intelligence_key)
+    logger.info("Document Intelligence Service: %s", document_intelligence_service)
 
     doc_int_parser: Optional[DocumentAnalysisParser] = None
     # check if Azure Document Intelligence credentials are provided
@@ -170,8 +174,12 @@ def setup_file_processors(
         documentintelligence_creds: Union[AsyncTokenCredential, AzureKeyCredential] = (
             azure_credential if document_intelligence_key is None else AzureKeyCredential(document_intelligence_key)
         )
+        logger.info("Azure Document Intelligence Credentials: %s", documentintelligence_creds)
+        doc_endpoint = f"https://{document_intelligence_service}.cognitiveservices.azure.com/"
+
+        logger.info("Document Intelligence Endpoint: %s", doc_endpoint)
         doc_int_parser = DocumentAnalysisParser(
-            endpoint=f"https://{document_intelligence_service}.cognitiveservices.azure.com/",
+            endpoint=doc_endpoint,
             credential=documentintelligence_creds,
             use_content_understanding=use_content_understanding,
             content_understanding_endpoint=content_understanding_endpoint,

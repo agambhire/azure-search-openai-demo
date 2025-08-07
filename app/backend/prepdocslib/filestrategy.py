@@ -26,6 +26,7 @@ async def parse_file(
         logger.info("Skipping '%s', no parser found.", file.filename())
         return []
     logger.info("Ingesting '%s'", file.filename())
+    logger.info("File Content: %s", file.content ) 
     pages = [page async for page in processor.parser.parse(content=file.content)]
     logger.info("Splitting '%s' into sections", file.filename())
     if image_embeddings:
