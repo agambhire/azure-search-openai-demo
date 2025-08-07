@@ -51,9 +51,10 @@ from quart_cors import cors
 
 from approaches.approach import Approach
 from approaches.chatreadretrieveread import ChatReadRetrieveReadApproach
+from approaches.chatreadretrievereadvision import ChatReadRetrieveReadVisionApproach
 from approaches.chatread import ChatReadApproach
 from approaches.promptmanager import PromptyManager
-# from approaches.retrievethenread import RetrieveThenReadApproach
+from approaches.retrievethenread import RetrieveThenReadApproach
 from approaches.retrievethenreadvision import RetrieveThenReadVisionApproach
 from chat_history.cosmosdb import chat_history_cosmosdb_bp
 from config import (
@@ -89,7 +90,7 @@ from config import (
     CONFIG_USER_UPLOAD_ENABLED,
     CONFIG_VECTOR_SEARCH_ENABLED,
 )
-from core.authentication import AuthenticationHelper
+from core.authentication import AuthenticationHelper, AuthError
 from core.sessionhelper import create_session_id
 from decorators import authenticated, authenticated_path
 from error import error_dict, error_response
@@ -101,7 +102,7 @@ from prepdocs import (
 )
 from prepdocslib.filestrategy import UploadUserFileStrategy, FetchUserFileStrategy
 from prepdocslib.listfilestrategy import File
-from utils import extract_matching_filename
+from utils import extract_json_from_content, sections_to_documents, extract_document_name_from_content, upload_json_to_blob
 
 bp = Blueprint("routes", __name__, static_folder="static")
 # Fix Windows registry issue with mimetypes
@@ -179,25 +180,24 @@ async def content_file(path: str, auth_claims: dict[str, Any]):
 @bp.route("/ask", methods=["POST"])
 @authenticated
 async def ask(auth_claims: dict[str, Any]):
-    pass
-    # if not request.is_json:
-    #     return jsonify({"error": "request must be json"}), 415
-    # request_json = await request.get_json()
-    # context = request_json.get("context", {})
-    # context["auth_claims"] = auth_claims
-    # try:
-    #     use_gpt4v = context.get("overrides", {}).get("use_gpt4v", False)
-    #     approach: Approach
-    #     if use_gpt4v and CONFIG_ASK_VISION_APPROACH in current_app.config:
-    #         approach = cast(Approach, current_app.config[CONFIG_ASK_VISION_APPROACH])
-    #     else:
-    #         approach = cast(Approach, current_app.config[CONFIG_ASK_APPROACH])
-    #     r = await approach.run(
-    #         request_json["messages"], context=context, session_state=request_json.get("session_state")
-    #     )
-    #     return jsonify(r)
-    # except Exception as error:
-    #     return error_response(error, "/ask")
+    if not request.is_json:
+        return jsonify({"error": "request must be json"}), 415
+    request_json = await request.get_json()
+    context = request_json.get("context", {})
+    context["auth_claims"] = auth_claims
+    try:
+        use_gpt4v = context.get("overrides", {}).get("use_gpt4v", False)
+        approach: Approach
+        if use_gpt4v and CONFIG_ASK_VISION_APPROACH in current_app.config:
+            approach = cast(Approach, current_app.config[CONFIG_ASK_VISION_APPROACH])
+        else:
+            approach = cast(Approach, current_app.config[CONFIG_ASK_APPROACH])
+        r = await approach.run(
+            request_json["messages"], context=context, session_state=request_json.get("session_state")
+        )
+        return jsonify(r)
+    except Exception as error:
+        return error_response(error, "/ask")
 
 
 class JSONEncoder(json.JSONEncoder):
@@ -219,74 +219,144 @@ async def format_as_ndjson(r: AsyncGenerator[dict, None]) -> AsyncGenerator[str,
 @bp.route("/chat", methods=["POST"])
 @authenticated
 async def chat(auth_claims: dict[str, Any]):
-    # if not request.is_json:
-    #     return jsonify({"error": "request must be json"}), 415
-    # request_json = await request.get_json()
-    # context = request_json.get("context", {})
-    # context["auth_claims"] = auth_claims
-    # try:
-    #     use_gpt4v = context.get("overrides", {}).get("use_gpt4v", False)
-    #     approach: Approach
-    #     if use_gpt4v and CONFIG_CHAT_VISION_APPROACH in current_app.config:
-    #         approach = cast(Approach, current_app.config[CONFIG_CHAT_VISION_APPROACH])
-    #     else:
-    #         approach = cast(Approach, current_app.config[CONFIG_CHAT_APPROACH])
+    if not request.is_json:
+        return jsonify({"error": "request must be json"}), 415
+    request_json = await request.get_json()
+    context = request_json.get("context", {})
+    context["auth_claims"] = auth_claims
+    try:
+        use_gpt4v = context.get("overrides", {}).get("use_gpt4v", False)
+        approach: Approach
+        if use_gpt4v and CONFIG_CHAT_VISION_APPROACH in current_app.config:
+            approach = cast(Approach, current_app.config[CONFIG_CHAT_VISION_APPROACH])
+        else:
+            approach = current_app.config[CONFIG_CHAT_WITHOUT_AI_SEARCH_APPROACH]
 
-    #     # If session state is provided, persists the session state,
-    #     # else creates a new session_id depending on the chat history options enabled.
-    #     session_state = request_json.get("session_state")
-    #     if session_state is None:
-    #         session_state = create_session_id(
-    #             current_app.config[CONFIG_CHAT_HISTORY_COSMOS_ENABLED],
-    #             current_app.config[CONFIG_CHAT_HISTORY_BROWSER_ENABLED],
-    #         )
-    #     result = await approach.run(
-    #         request_json["messages"],
-    #         context=context,
-    #         session_state=session_state,
-    #     )
-    #     return jsonify(result)
-    # except Exception as error:
-    #     return error_response(error, "/chat")
-    pass
+        # If session state is provided, persists the session state,
+        # else creates a new session_id depending on the chat history options enabled.
+        session_state = request_json.get("session_state")
+        if session_state is None:
+            session_state = create_session_id(
+                current_app.config[CONFIG_CHAT_HISTORY_COSMOS_ENABLED],
+                current_app.config[CONFIG_CHAT_HISTORY_BROWSER_ENABLED],
+            )
+        result = await approach.run(
+            request_json["messages"],
+            context=context,
+            session_state=session_state,
+        )
+        return jsonify(result)
+    except Exception as error:
+        return error_response(error, "/chat")
 
 
 @bp.route("/chat/stream", methods=["POST"])
 @authenticated
 async def chat_stream(auth_claims: dict[str, Any]):
-    # if not request.is_json:
-    #     return jsonify({"error": "request must be json"}), 415
-    # request_json = await request.get_json()
-    # context = request_json.get("context", {})
-    # context["auth_claims"] = auth_claims
-    # try:
-    #     use_gpt4v = context.get("overrides", {}).get("use_gpt4v", False)
-    #     approach: Approach
-    #     if use_gpt4v and CONFIG_CHAT_VISION_APPROACH in current_app.config:
-    #         approach = cast(Approach, current_app.config[CONFIG_CHAT_VISION_APPROACH])
-    #     else:
-    #         approach = cast(Approach, current_app.config[CONFIG_CHAT_APPROACH])
+    if not request.is_json:
+        return jsonify({"error": "request must be json"}), 415
+    request_json = await request.get_json()
+    context = request_json.get("context", {})
+    context["auth_claims"] = auth_claims
+    try:
+        use_gpt4v = context.get("overrides", {}).get("use_gpt4v", False)
+        approach: Approach
+        if use_gpt4v and CONFIG_CHAT_VISION_APPROACH in current_app.config:
+            approach = cast(Approach, current_app.config[CONFIG_CHAT_VISION_APPROACH])
+        else:
+            approach = cast(Approach, current_app.config[CONFIG_CHAT_APPROACH])
 
-    #     # If session state is provided, persists the session state,
-    #     # else creates a new session_id depending on the chat history options enabled.
-    #     session_state = request_json.get("session_state")
-    #     if session_state is None:
-    #         session_state = create_session_id(
-    #             current_app.config[CONFIG_CHAT_HISTORY_COSMOS_ENABLED],
-    #             current_app.config[CONFIG_CHAT_HISTORY_BROWSER_ENABLED],
-    #         )
-    #     result = await approach.run_stream(
-    #         request_json["messages"],
-    #         context=context,
-    #         session_state=session_state,
-    #     )
-    #     response = await make_response(format_as_ndjson(result))
-    #     response.timeout = None  # type: ignore
-    #     response.mimetype = "application/json-lines"
-    #     return response
-    # except Exception as error:
-    #     return error_response(error, "/chat")
-    pass
+        # If session state is provided, persists the session state,
+        # else creates a new session_id depending on the chat history options enabled.
+        session_state = request_json.get("session_state")
+        if session_state is None:
+            session_state = create_session_id(
+                current_app.config[CONFIG_CHAT_HISTORY_COSMOS_ENABLED],
+                current_app.config[CONFIG_CHAT_HISTORY_BROWSER_ENABLED],
+            )
+        result = await approach.run_stream(
+            request_json["messages"],
+            context=context,
+            session_state=session_state,
+        )
+        response = await make_response(format_as_ndjson(result))
+        response.timeout = None  # type: ignore
+        response.mimetype = "application/json-lines"
+        return response
+    except Exception as error:
+        return error_response(error, "/chat")
+
+async def make_chat(chat_approach: Approach, messages: list[dict[str, Any]], context: dict[str, Any], session_state: str = None, is_stream: bool = False):
+    approach: Approach
+    approach = cast(Approach, chat_approach)
+    if is_stream:
+        result = await approach.run_stream(
+            messages,
+            context=context,
+            session_state=session_state,
+        )
+    else:
+        result = await approach.run(
+            messages,
+            context=context,
+            session_state=session_state,
+        )
+
+    return result
+
+@bp.route("/submit_data", methods=["POST"])
+@authenticated
+async def submit_data(auth_claims: dict[str, Any]):
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 415
+
+    try:
+        request_json = await request.get_json()
+        context = request_json.get("context", {})
+        session_state = request_json.get("session_state")
+
+        if not auth_claims:
+            return jsonify({"error": "Auth claim not provided, please login first..."}), 401
+        context["auth_claims"] = auth_claims
+
+        if session_state is None:
+            session_state = create_session_id(
+                current_app.config[CONFIG_CHAT_HISTORY_COSMOS_ENABLED],
+                current_app.config[CONFIG_CHAT_HISTORY_BROWSER_ENABLED],
+            )
+
+        chat_approach = current_app.config[CONFIG_CHAT_WITHOUT_AI_SEARCH_APPROACH]
+        messages = request_json.get("messages", [])
+        if not messages:
+            return jsonify({"error": "No messages provided"}), 400
+
+        # Modify last message to trigger JSON generation
+        messages[-1]["content"] = "Generate JSON"
+
+        result = await make_chat(
+            chat_approach,
+            messages,
+            context=context,
+            session_state=session_state,
+        )
+
+        # Extract JSON from result
+        try:
+            content = result.get("message", {}).get("content", "")
+            document_name = extract_document_name_from_content(messages[1]["content"])
+            extracted_json = extract_json_from_content(content)
+            upload_status = await upload_json_to_blob(json_data=extracted_json, document_name=document_name, 
+                                                blob_container_client=current_app.config[CONFIG_BLOB_CONTAINER_CLIENT])
+            if not upload_status:
+                return jsonify({"error": "Failed to upload JSON to blob"}), 500
+        except ValueError as ve:
+            return jsonify({"error": str(ve)}), 422
+        
+        current_app.logger.info("Successfully extracted JSON and uploaded to blob storage.")
+        return jsonify({"message": "Successfully submitted data for processing.", "context": result.get("context")}), 200
+
+    except Exception as error:
+        return jsonify({"error": str(error)}), 500
 
 @bp.route("/chat_on_payroll/stream", methods=["POST"])
 @authenticated
@@ -295,16 +365,11 @@ async def chat_stream_on_payroll(auth_claims: dict[str, Any]):
         return jsonify({"error": "request must be json"}), 415
     request_json = await request.get_json()
     context = request_json.get("context", {})
-    context["auth_claims"] = auth_claims
-    context["overrides"]["blob_client"] = current_app.config[CONFIG_USER_BLOB_CONTAINER_CLIENT]
-
     try:
-        use_gpt4v = context.get("overrides", {}).get("use_gpt4v", False)
-        approach: Approach
-        if use_gpt4v and CONFIG_CHAT_VISION_APPROACH in current_app.config:
-            approach = cast(Approach, current_app.config[CONFIG_CHAT_VISION_APPROACH])
+        if auth_claims:
+            context["auth_claims"] = auth_claims
         else:
-            approach = cast(Approach, current_app.config[CONFIG_CHAT_WITHOUT_AI_SEARCH_APPROACH])
+            return jsonify({"error": "Auth claim not provided, please login first..."})        
 
         # If session state is provided, persists the session state,
         # else creates a new session_id depending on the chat history options enabled.
@@ -315,18 +380,31 @@ async def chat_stream_on_payroll(auth_claims: dict[str, Any]):
                 current_app.config[CONFIG_CHAT_HISTORY_BROWSER_ENABLED],
             )
 
-        parser: FetchUserFileStrategy = current_app.config[CONFIG_PARSER]
-        context["overrides"]["doc_parser"] = parser
+        use_gpt4v = context.get("overrides", {}).get("use_gpt4v", False)
+
+        if use_gpt4v and CONFIG_CHAT_VISION_APPROACH in current_app.config:
+            chat_approach = current_app.config[CONFIG_CHAT_VISION_APPROACH]
+        else:
+            chat_approach = current_app.config[CONFIG_CHAT_WITHOUT_AI_SEARCH_APPROACH]
         
-        result = await approach.run_stream(
+        result = await make_chat(
+            chat_approach,
             request_json["messages"],
             context=context,
             session_state=session_state,
+            is_stream=True
         )
+
         response = await make_response(format_as_ndjson(result))
+        
         response.timeout = None  # type: ignore
         response.mimetype = "application/json-lines"
         return response
+    except AuthError as error:
+        return jsonify({"Login required": str(error)}), 401
+    except KeyError as error:
+        # return error_response("Missing Identity, please login...", "/chat_on_payroll/stream")
+        return jsonify({"Missing Identity, please login...": str(error)}), 500
     except Exception as error:
         return error_response(error, "/chat_on_payroll")
 
@@ -403,35 +481,103 @@ async def speech():
         current_app.logger.exception("Exception in /speech")
         return jsonify({"error": str(e)}), 500
 
-
-@bp.post("/upload")
+@bp.post("/upload/stream")
 @authenticated
 async def upload(auth_claims: dict[str, Any]):
-    request_files = await request.files
-    if "file" not in request_files:
-        # If no files were included in the request, return an error response
-        return jsonify({"message": "No file part in the request", "status": "failed"}), 400
-
-    user_oid = auth_claims["oid"]
-    file = request_files.getlist("file")[0]
-    user_blob_container_client: FileSystemClient = current_app.config[CONFIG_USER_BLOB_CONTAINER_CLIENT]
-    user_directory_client = user_blob_container_client.get_directory_client(user_oid)
     try:
-        await user_directory_client.get_directory_properties()
-    except ResourceNotFoundError:
-        current_app.logger.info("Creating directory for user %s", user_oid)
-        await user_directory_client.create_directory()
-    await user_directory_client.set_access_control(owner=user_oid)
-    file_client = user_directory_client.get_file_client(file.filename)
-    file_io = file
-    file_io.name = file.filename
-    file_io = io.BufferedReader(file_io)
-    await file_client.upload_data(file_io, overwrite=True, metadata={"UploadedBy": user_oid})
-    file_io.seek(0)
-    # ingester: UploadUserFileStrategy = current_app.config[CONFIG_INGESTER]
-    # await ingester.add_file(File(content=file_io, acls={"oids": [user_oid]}, url=file_client.url))
-    return jsonify({"message": "File uploaded to blob storage successfully"}), 200
+        request_files = await request.files
+        if "file" not in request_files:
+            # If no files were included in the request, return an error response
+            return jsonify({"message": "No file part in the request", "status": "failed"}), 400
 
+        user_oid = auth_claims["oid"]
+        current_app.logger.info(f"OID - {user_oid}")
+        file = request_files.getlist("file")[0]
+        user_blob_container_client: FileSystemClient = current_app.config[CONFIG_USER_BLOB_CONTAINER_CLIENT]
+        user_directory_client = user_blob_container_client.get_directory_client(user_oid)
+        try:
+            await user_directory_client.get_directory_properties()
+        except ResourceNotFoundError:
+            current_app.logger.info("Creating directory for user %s", user_oid)
+            await user_directory_client.create_directory()
+        await user_directory_client.set_access_control(owner=user_oid)
+        try:
+            file_client = user_directory_client.get_file_client(file.filename)
+        except Exception as e:
+            current_app.logger.exception("Exception in /upload")
+            return jsonify({"message": str(e), "status": "failed"}), 500
+        file_io = file
+        file_io.name = file.filename
+        current_app.logger.info("Uploading file %s", file_io.name)
+        file_io = io.BufferedReader(file_io)
+        await file_client.upload_data(file_io, overwrite=True, metadata={"UploadedBy": user_oid})
+        file_io.seek(0)
+
+        # # check extracted text
+        # import fitz
+        # with fitz.open(stream=file_io.read(), filetype="pdf") as doc:
+        #     text = "\n".join(page.get_text() for page in doc)
+        #     print("Extracted PDF text:\n", text)
+        #     file_io.seek(0)
+        #     # results = await parser.fetch_file(File(content=stream, acls={"oids": [user_oid]}, url=file_client.url))
+        #     # print("Parsed document -", results)
+        # file_io.seek(0)
+
+        current_app.logger.info("File %s uploaded successfully and the content is %s", file_io.name, file_io)
+        current_app.logger.info("File URL - %s", file_client.url)
+        # ingester: UploadUserFileStrategy = current_app.config[CONFIG_INGESTER]
+        # await ingester.add_file(File(content=file_io, acls={"oids": [user_oid]}, url=file_client.url))
+
+        parser: FetchUserFileStrategy = current_app.config[CONFIG_PARSER]
+
+        current_app.logger.info("1234 - Processing file %s with parser %s", file_io.name, parser)
+        file_url = "https://eundgposbxsta02.blob.core.windows.net/user-content/f4c24c62-d8f6-417b-b310-b4f955a874a3/PP.pdf"
+        results = await parser.fetch_file(File(content=file_io, acls={"oids": [user_oid]}, url=file_url, filename=file_io.name))
+        current_app.logger.info("1234 -File %s processed successfully", file_io.name)
+
+        # Convert sections to documents
+        current_app.logger.info("Converting sections to documents")
+        documents = sections_to_documents(results, oids=user_oid)
+
+        context = {
+            "overrides": {
+                "documents": documents
+            }
+
+        }
+        context["overrides"]["documents"] = documents
+        context["overrides"]["file_name"] = file_io.name
+
+        chat_approach = current_app.config[CONFIG_CHAT_WITHOUT_AI_SEARCH_APPROACH]
+
+        messgaes = [
+            {
+                "content": "Extract information from the documents in key-value pairs structure.",
+                "role": "user"
+            }
+        ]
+
+        session_state = create_session_id(
+            current_app.config[CONFIG_CHAT_HISTORY_COSMOS_ENABLED],
+            current_app.config[CONFIG_CHAT_HISTORY_BROWSER_ENABLED],
+        )
+
+        result = await make_chat(
+            chat_approach,
+            messages=messgaes,
+            context=context,
+            session_state=session_state,
+            is_stream=True
+        )
+
+        response = await make_response(format_as_ndjson(result))
+        response.timeout = None  # type: ignore
+        response.mimetype = "application/json-lines"
+        print("Response generated successfully", response)
+        return response
+        
+    except Exception as error:
+        return error_response(error, "/upload")
 
 @bp.post("/delete_uploaded")
 @authenticated
@@ -452,7 +598,6 @@ async def delete_uploaded(auth_claims: dict[str, Any]):
 @authenticated
 async def list_uploaded(auth_claims: dict[str, Any]):
     user_oid = auth_claims["oid"]
-    print(user_oid)
     user_blob_container_client: FileSystemClient = current_app.config[CONFIG_USER_BLOB_CONTAINER_CLIENT]
     files = []
     try:
@@ -468,14 +613,15 @@ async def list_uploaded(auth_claims: dict[str, Any]):
 @bp.before_app_serving
 async def setup_clients():
     # Replace these with your own values, either in environment variables or directly here
-    AZURE_STORAGE_ACCOUNT = os.environ["AZURE_STORAGE_ACCOUNT"]
-    AZURE_STORAGE_CONTAINER = os.environ["AZURE_STORAGE_CONTAINER"]
+    AZURE_STORAGE_ACCOUNT = os.environ.get("AZURE_STORAGE_ACCOUNT", '')
+    AZURE_STORAGE_CONTAINER = os.environ.get("AZURE_STORAGE_CONTAINER", '')
     AZURE_USERSTORAGE_ACCOUNT = os.environ.get("AZURE_USERSTORAGE_ACCOUNT")
     AZURE_USERSTORAGE_CONTAINER = os.environ.get("AZURE_USERSTORAGE_CONTAINER")
 
-    USE_AZURE_SEARCH_SERVICE = os.environ.get("USE_AZURE_SEARCH_SERVICE", "true").lower() == "true"
-    AZURE_SEARCH_SERVICE = os.environ["AZURE_SEARCH_SERVICE"]
-    AZURE_SEARCH_INDEX = os.environ["AZURE_SEARCH_INDEX"]
+    USE_AZURE_SEARCH_SERVICE = os.environ.get("USE_AZURE_SEARCH_SERVICE", "false").lower() == "true"
+    AZURE_SEARCH_SERVICE = os.environ.get("AZURE_SEARCH_SERVICE", '')
+    AZURE_SEARCH_INDEX = os.environ.get("AZURE_SEARCH_INDEX", '')
+
     # Shared by all OpenAI deployments
     OPENAI_HOST = os.getenv("OPENAI_HOST", "azure")
     OPENAI_CHATGPT_MODEL = os.environ["AZURE_OPENAI_CHATGPT_MODEL"]
@@ -571,21 +717,25 @@ async def setup_clients():
     else:
         search_client = None
 
-    blob_container_client = ContainerClient(
-        f"https://{AZURE_STORAGE_ACCOUNT}.blob.core.windows.net", AZURE_STORAGE_CONTAINER, credential=azure_credential
-    )
+    if AZURE_STORAGE_ACCOUNT:
+        blob_container_client = ContainerClient(
+            f"https://{AZURE_STORAGE_ACCOUNT}.blob.core.windows.net", AZURE_STORAGE_CONTAINER, credential=azure_credential
+        )
+    else:
+        blob_container_client = None
 
     # Set up authentication helper
     search_index = None
-    if AZURE_USE_AUTHENTICATION:
-        if USE_AZURE_SEARCH_SERVICE:
-            current_app.logger.info("AZURE_USE_AUTHENTICATION is true, setting up search index client")
-            search_index_client = SearchIndexClient(
-                endpoint=f"https://{AZURE_SEARCH_SERVICE}.search.windows.net",
-                credential=azure_credential,
-            )
-            search_index = await search_index_client.get_index(AZURE_SEARCH_INDEX)
-            await search_index_client.close()
+    if AZURE_USE_AUTHENTICATION and USE_AZURE_SEARCH_SERVICE:
+        current_app.logger.info("AZURE_USE_AUTHENTICATION is true, setting up search index client")
+        search_index_client = SearchIndexClient(
+            endpoint=f"https://{AZURE_SEARCH_SERVICE}.search.windows.net",
+            credential=azure_credential,
+        )
+        search_index = await search_index_client.get_index(AZURE_SEARCH_INDEX)
+        await search_index_client.close()
+    else:
+        current_app.logger.info("AZURE_USE_AUTHENTICATION is false, not setting up search index client")
 
     auth_helper = AuthenticationHelper(
         search_index=search_index,
@@ -616,6 +766,7 @@ async def setup_clients():
         file_processors = setup_file_processors(
             azure_credential=azure_credential,
             document_intelligence_service=os.getenv("AZURE_DOCUMENTINTELLIGENCE_SERVICE"),
+            document_intelligence_key=os.getenv("AZURE_DOCUMENTINTELLIGENCE_KEY"),
             local_pdf_parser=os.getenv("USE_LOCAL_PDF_PARSER", "").lower() == "true",
             local_html_parser=os.getenv("USE_LOCAL_HTML_PARSER", "").lower() == "true",
             search_images=USE_GPT4V,
@@ -642,6 +793,7 @@ async def setup_clients():
             )
             current_app.config[CONFIG_INGESTER] = ingester
         else:
+            current_app.config[CONFIG_INGESTER] = None
             parser = FetchUserFileStrategy(
                 file_processors=file_processors
             )
@@ -704,6 +856,7 @@ async def setup_clients():
     current_app.config[CONFIG_OPENAI_CLIENT] = openai_client
     current_app.config[CONFIG_SEARCH_CLIENT] = search_client
     current_app.config[CONFIG_BLOB_CONTAINER_CLIENT] = blob_container_client
+    print("Blob container client set up:", blob_container_client)
     current_app.config[CONFIG_AUTH_CLIENT] = auth_helper
 
     current_app.config[CONFIG_GPT4V_DEPLOYED] = bool(USE_GPT4V)
@@ -731,22 +884,22 @@ async def setup_clients():
 
     # Set up the two default RAG approaches for /ask and /chat
     # RetrieveThenReadApproach is used by /ask for single-turn Q&A
-    # current_app.config[CONFIG_ASK_APPROACH] = RetrieveThenReadApproach(
-    #     search_client=search_client,
-    #     openai_client=openai_client,
-    #     auth_helper=auth_helper,
-    #     chatgpt_model=OPENAI_CHATGPT_MODEL,
-    #     chatgpt_deployment=AZURE_OPENAI_CHATGPT_DEPLOYMENT,
-    #     embedding_model=OPENAI_EMB_MODEL,
-    #     embedding_deployment=AZURE_OPENAI_EMB_DEPLOYMENT,
-    #     embedding_dimensions=OPENAI_EMB_DIMENSIONS,
-    #     sourcepage_field=KB_FIELDS_SOURCEPAGE,
-    #     content_field=KB_FIELDS_CONTENT,
-    #     query_language=AZURE_SEARCH_QUERY_LANGUAGE,
-    #     query_speller=AZURE_SEARCH_QUERY_SPELLER,
-    #     prompt_manager=prompt_manager,
-    #     reasoning_effort=OPENAI_REASONING_EFFORT,
-    # )
+    current_app.config[CONFIG_ASK_APPROACH] = RetrieveThenReadApproach(
+        search_client=search_client,
+        openai_client=openai_client,
+        auth_helper=auth_helper,
+        chatgpt_model=OPENAI_CHATGPT_MODEL,
+        chatgpt_deployment=AZURE_OPENAI_CHATGPT_DEPLOYMENT,
+        embedding_model=OPENAI_EMB_MODEL,
+        embedding_deployment=AZURE_OPENAI_EMB_DEPLOYMENT,
+        embedding_dimensions=OPENAI_EMB_DIMENSIONS,
+        sourcepage_field=KB_FIELDS_SOURCEPAGE,
+        content_field=KB_FIELDS_CONTENT,
+        query_language=AZURE_SEARCH_QUERY_LANGUAGE,
+        query_speller=AZURE_SEARCH_QUERY_SPELLER,
+        prompt_manager=prompt_manager,
+        reasoning_effort=OPENAI_REASONING_EFFORT,
+    )
 
 
     # ChatReadRetrieveReadApproach is used by /chat for multi-turn conversation
@@ -803,45 +956,45 @@ async def setup_clients():
 
         token_provider = get_bearer_token_provider(azure_credential, "https://cognitiveservices.azure.com/.default")
 
-        # current_app.config[CONFIG_ASK_VISION_APPROACH] = RetrieveThenReadVisionApproach(
-        #     search_client=search_client,
-        #     openai_client=openai_client,
-        #     blob_container_client=blob_container_client,
-        #     auth_helper=auth_helper,
-        #     vision_endpoint=AZURE_VISION_ENDPOINT,
-        #     vision_token_provider=token_provider,
-        #     gpt4v_deployment=AZURE_OPENAI_GPT4V_DEPLOYMENT,
-        #     gpt4v_model=AZURE_OPENAI_GPT4V_MODEL,
-        #     embedding_model=OPENAI_EMB_MODEL,
-        #     embedding_deployment=AZURE_OPENAI_EMB_DEPLOYMENT,
-        #     embedding_dimensions=OPENAI_EMB_DIMENSIONS,
-        #     sourcepage_field=KB_FIELDS_SOURCEPAGE,
-        #     content_field=KB_FIELDS_CONTENT,
-        #     query_language=AZURE_SEARCH_QUERY_LANGUAGE,
-        #     query_speller=AZURE_SEARCH_QUERY_SPELLER,
-        #     prompt_manager=prompt_manager,
-        # )
+        current_app.config[CONFIG_ASK_VISION_APPROACH] = RetrieveThenReadVisionApproach(
+            search_client=search_client,
+            openai_client=openai_client,
+            blob_container_client=blob_container_client,
+            auth_helper=auth_helper,
+            vision_endpoint=AZURE_VISION_ENDPOINT,
+            vision_token_provider=token_provider,
+            gpt4v_deployment=AZURE_OPENAI_GPT4V_DEPLOYMENT,
+            gpt4v_model=AZURE_OPENAI_GPT4V_MODEL,
+            embedding_model=OPENAI_EMB_MODEL,
+            embedding_deployment=AZURE_OPENAI_EMB_DEPLOYMENT,
+            embedding_dimensions=OPENAI_EMB_DIMENSIONS,
+            sourcepage_field=KB_FIELDS_SOURCEPAGE,
+            content_field=KB_FIELDS_CONTENT,
+            query_language=AZURE_SEARCH_QUERY_LANGUAGE,
+            query_speller=AZURE_SEARCH_QUERY_SPELLER,
+            prompt_manager=prompt_manager,
+        )
 
-        # current_app.config[CONFIG_CHAT_VISION_APPROACH] = ChatReadRetrieveReadVisionApproach(
-        #     search_client=search_client,
-        #     openai_client=openai_client,
-        #     blob_container_client=blob_container_client,
-        #     auth_helper=auth_helper,
-        #     vision_endpoint=AZURE_VISION_ENDPOINT,
-        #     vision_token_provider=token_provider,
-        #     chatgpt_model=OPENAI_CHATGPT_MODEL,
-        #     chatgpt_deployment=AZURE_OPENAI_CHATGPT_DEPLOYMENT,
-        #     gpt4v_deployment=AZURE_OPENAI_GPT4V_DEPLOYMENT,
-        #     gpt4v_model=AZURE_OPENAI_GPT4V_MODEL,
-        #     embedding_model=OPENAI_EMB_MODEL,
-        #     embedding_deployment=AZURE_OPENAI_EMB_DEPLOYMENT,
-        #     embedding_dimensions=OPENAI_EMB_DIMENSIONS,
-        #     sourcepage_field=KB_FIELDS_SOURCEPAGE,
-        #     content_field=KB_FIELDS_CONTENT,
-        #     query_language=AZURE_SEARCH_QUERY_LANGUAGE,
-        #     query_speller=AZURE_SEARCH_QUERY_SPELLER,
-        #     prompt_manager=prompt_manager,
-        # )
+        current_app.config[CONFIG_CHAT_VISION_APPROACH] = ChatReadRetrieveReadVisionApproach(
+            search_client=search_client,
+            openai_client=openai_client,
+            blob_container_client=blob_container_client,
+            auth_helper=auth_helper,
+            vision_endpoint=AZURE_VISION_ENDPOINT,
+            vision_token_provider=token_provider,
+            chatgpt_model=OPENAI_CHATGPT_MODEL,
+            chatgpt_deployment=AZURE_OPENAI_CHATGPT_DEPLOYMENT,
+            gpt4v_deployment=AZURE_OPENAI_GPT4V_DEPLOYMENT,
+            gpt4v_model=AZURE_OPENAI_GPT4V_MODEL,
+            embedding_model=OPENAI_EMB_MODEL,
+            embedding_deployment=AZURE_OPENAI_EMB_DEPLOYMENT,
+            embedding_dimensions=OPENAI_EMB_DIMENSIONS,
+            sourcepage_field=KB_FIELDS_SOURCEPAGE,
+            content_field=KB_FIELDS_CONTENT,
+            query_language=AZURE_SEARCH_QUERY_LANGUAGE,
+            query_speller=AZURE_SEARCH_QUERY_SPELLER,
+            prompt_manager=prompt_manager,
+        )
 
 
 @bp.after_app_serving
