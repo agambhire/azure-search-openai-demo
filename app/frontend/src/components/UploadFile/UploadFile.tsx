@@ -4,20 +4,21 @@ import { Button } from "@fluentui/react-components";
 import { Add24Regular, Delete24Regular } from "@fluentui/react-icons";
 import { useMsal } from "@azure/msal-react";
 import { useTranslation } from "react-i18next";
+import readNDJSONStream from "ndjson-readablestream";
 
 import { SimpleAPIResponse, uploadFileApi, deleteUploadedFileApi, listUploadedFilesApi } from "../../api";
 import { useLogin, getToken } from "../../authConfig";
 import styles from "./UploadFile.module.css";
 
-import { ChatAppResponse } from "../../api";
-
 interface Props {
     className?: string;
     disabled?: boolean;
-    onUploadSuccess?: (chatResponse: ChatAppResponse) => void;
+    onUploadResponse?: (response: string) => void;
+    onStreamResponse?: (response: ReadableStream<any>) => void;
+    shouldStream?: boolean;
 }
 
-export const UploadFile: React.FC<Props> = ({ className, disabled }: Props) => {
+export const UploadFile: React.FC<Props> = ({ className, disabled, onUploadResponse, onStreamResponse, shouldStream = true }: Props) => {
     // State variables to manage the component behavior
     const [isCalloutVisible, setIsCalloutVisible] = useState<boolean>(false);
     const [isUploading, setIsUploading] = useState<boolean>(false);
@@ -77,6 +78,45 @@ export const UploadFile: React.FC<Props> = ({ className, disabled }: Props) => {
         }
     };
 
+    // Function to handle streamed response data
+    const handleStreamedResponse = async (response: Response) => {
+        if (!response.body) {
+            throw new Error("No response body available");
+        }
+
+        let accumulatedResponse = "";
+        const reader = readNDJSONStream(response.body);
+
+        try {
+            for await (const data of reader) {
+                if (data.error) {
+                    setUploadedFileError(data.error);
+                    continue;
+                }
+
+                const newContent = data.message?.content || 
+                                 data.answer || 
+                                 data.choices?.[0]?.message?.content ||
+                                 data.message ||
+                                 "";
+
+                accumulatedResponse += newContent;
+                await new Promise(resolve => setTimeout(resolve, 33)); // Throttle updates
+                setUploadedFile({
+                    message: accumulatedResponse
+                });
+                
+                // Send response to chat component if callback exists
+                if (onUploadResponse) {
+                    onUploadResponse(accumulatedResponse);
+                }
+            }
+        } catch (e) {
+            console.warn("Failed to parse streaming response:", e);
+            throw e;
+        }
+    };
+
     // Handler for the form submission (file upload)
     const handleUploadFile = async (e: ChangeEvent<HTMLInputElement>) => {
         e.preventDefault();
@@ -93,23 +133,25 @@ export const UploadFile: React.FC<Props> = ({ className, disabled }: Props) => {
             if (!idToken) {
                 throw new Error("No authentication token available");
             }
-            const response: SimpleAPIResponse = await uploadFileApi(formData, idToken);
-            setUploadedFile(response);
+            const response = await uploadFileApi(formData, shouldStream, idToken);
+            
+            if (shouldStream && response.body) {
+                if (onStreamResponse) {
+                    onStreamResponse(response.body);
+                } else {
+                    await handleStreamedResponse(response);
+                }
+            } else {
+                const jsonResponse = await response.json();
+                setUploadedFile(jsonResponse);
+                if (onUploadResponse) {
+                    onUploadResponse(jsonResponse.message || jsonResponse.answer || jsonResponse.choices?.[0]?.message?.content || '');
+                }
+            }
+            
             setIsUploading(false);
             setUploadedFileError(undefined);
             listUploadedFiles(idToken);
-
-            // Assuming the backend's upload API returns a ChatAppResponse or similar structure
-            // If your backend returns a different structure, you'll need to adapt this.
-            if (onUploadSuccess && response.message) {
-                // Construct a ChatAppResponse from the SimpleAPIResponse message
-                const chatResponse: ChatAppResponse = {
-                    message: { content: response.message, role: "ai" },
-                    context: { data_points: [], thoughts: [] }, // Populate as needed if your backend provides more context
-                    session_state: null
-                };
-                onUploadSuccess(chatResponse);
-            }
         } catch (error) {
             console.error(error);
             setIsUploading(false);
@@ -148,31 +190,52 @@ export const UploadFile: React.FC<Props> = ({ className, disabled }: Props) => {
                         {/* Show a loading message while files are being uploaded */}
                         {isUploading && <Text>{t("upload.uploadingFiles")}</Text>}
                         {!isUploading && uploadedFileError && <Text>{uploadedFileError}</Text>}
-                        {!isUploading && uploadedFile && <Text>{uploadedFile.message}</Text>}
+                        {!isUploading && uploadedFile && (
+                            <Text>{uploadedFile.message || uploadedFile.answer || (uploadedFile.choices?.[0]?.message?.content)}</Text>
+                        )}
 
                         {/* Display the list of already uploaded */}
                         <h3>{t("upload.uploadedFilesLabel")}</h3>
 
                         {isLoading && <Text>{t("upload.loading")}</Text>}
                         {!isLoading && uploadedFiles.length === 0 && <Text>{t("upload.noFilesUploaded")}</Text>}
-                        {uploadedFiles.map((filename, index) => {
-                            return (
-                                <div key={index} className={styles.list}>
-                                    <div className={styles.item}>{filename}</div>
-                                    {/* Button to remove a file from the list */}
-                                    <Button
-                                        icon={<Delete24Regular />}
-                                        onClick={() => handleRemoveFile(filename)}
-                                        disabled={deletionStatus[filename] === "pending" || deletionStatus[filename] === "success"}
-                                    >
-                                        {!deletionStatus[filename] && t("upload.deleteFile")}
-                                        {deletionStatus[filename] == "pending" && t("upload.deletingFile")}
-                                        {deletionStatus[filename] == "error" && t("upload.errorDeleting")}
-                                        {deletionStatus[filename] == "success" && t("upload.fileDeleted")}
-                                    </Button>
-                                </div>
-                            );
-                        })}
+                        {uploadedFiles.length >= 5 ? (
+                            <div className={styles.uploadedFilesScroll}>
+                                {uploadedFiles.map((filename, index) => (
+                                    <div key={index} className={styles.list}>
+                                        <div className={styles.item}>{filename}</div>
+                                        <Button
+                                            icon={<Delete24Regular />}
+                                            onClick={() => handleRemoveFile(filename)}
+                                            disabled={deletionStatus[filename] === "pending" || deletionStatus[filename] === "success"}
+                                        >
+                                            {!deletionStatus[filename] && t("upload.deleteFile")}
+                                            {deletionStatus[filename] == "pending" && t("upload.deletingFile")}
+                                            {deletionStatus[filename] == "error" && t("upload.errorDeleting")}
+                                            {deletionStatus[filename] == "success" && t("upload.fileDeleted")}
+                                        </Button>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <>
+                                {uploadedFiles.map((filename, index) => (
+                                    <div key={index} className={styles.list}>
+                                        <div className={styles.item}>{filename}</div>
+                                        <Button
+                                            icon={<Delete24Regular />}
+                                            onClick={() => handleRemoveFile(filename)}
+                                            disabled={deletionStatus[filename] === "pending" || deletionStatus[filename] === "success"}
+                                        >
+                                            {!deletionStatus[filename] && t("upload.deleteFile")}
+                                            {deletionStatus[filename] == "pending" && t("upload.deletingFile")}
+                                            {deletionStatus[filename] == "error" && t("upload.errorDeleting")}
+                                            {deletionStatus[filename] == "success" && t("upload.fileDeleted")}
+                                        </Button>
+                                    </div>
+                                ))}
+                            </>
+                        )}
                     </Callout>
                 )}
             </div>

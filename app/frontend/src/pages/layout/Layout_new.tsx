@@ -3,7 +3,7 @@ import { Outlet, NavLink, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import styles from "./Layout.module.css";
 
-import logo from "../../assets/EY_Logo_Transparent.png";
+import logo from "../../assets/EY_logo.png";
 
 import { useLogin } from "../../authConfig";
 
@@ -41,12 +41,12 @@ const Layout = () => {
             <header className={styles.header} role={"banner"}>
                 <div className={styles.headerContainer} ref={menuRef}>
                     <Link to="/" className={styles.headerTitleContainer}>
-                        <img src={logo} alt="EY Company Logo" className={styles.headerLogo} />
+                        <img src={logo} alt="Company Logo" className={styles.headerLogo} />
                         <h3 className={styles.headerTitle}>{t("headerTitle")}</h3>
                     </Link>
-                    {/* <nav> */}
-                    {/* <ul className={`${styles.headerNavList} ${menuOpen ? styles.show : ""}`}> */}
-                    {/* <li>
+                    {/* <nav>
+                        <ul className={`${styles.headerNavList} ${menuOpen ? styles.show : ""}`}>
+                            <li>
                                 <NavLink
                                     to="/"
                                     className={({ isActive }) => (isActive ? styles.headerNavPageLinkActive : styles.headerNavPageLink)}
@@ -54,8 +54,8 @@ const Layout = () => {
                                 >
                                     {t("chat")}
                                 </NavLink>
-                            </li> */}
-                    {/* <li>
+                            </li>
+                            <li>
                                 <NavLink
                                     to="/qa"
                                     className={({ isActive }) => (isActive ? styles.headerNavPageLinkActive : styles.headerNavPageLink)}
@@ -63,9 +63,9 @@ const Layout = () => {
                                 >
                                     {t("qa")}
                                 </NavLink>
-                            </li> */}
-                    {/* </ul> */}
-                    {/* </nav> */}
+                            </li>
+                        </ul>
+                    </nav> */}
                     <div className={styles.loginMenuContainer}>
                         {useLogin && <LoginButton />}
                         <IconButton

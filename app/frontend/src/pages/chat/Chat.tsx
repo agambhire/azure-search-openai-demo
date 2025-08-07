@@ -182,6 +182,18 @@ const Chat = () => {
     })();
     const historyManager = useHistoryManager(historyProvider);
 
+    const clearChat = () => {
+            lastQuestionRef.current = "";
+            error && setError(undefined);
+            setActiveCitation(undefined);
+            setActiveAnalysisPanelTab(undefined);
+            setAnswers([]);
+            setSpeechUrls([]);
+            setStreamedAnswers([]);
+            setIsLoading(false);
+            setIsStreaming(false);
+        };
+
     const makeApiRequest = async (question: string) => {
         lastQuestionRef.current = question;
 
@@ -191,6 +203,8 @@ const Chat = () => {
         setActiveAnalysisPanelTab(undefined);
 
         const token = client ? await getToken(client) : undefined;
+
+
 
         try {
             const messages: ResponseMessage[] = answers.flatMap(a => [
@@ -229,6 +243,7 @@ const Chat = () => {
             };
 
             const response = await chatApi(request, shouldStream, token);
+            
             if (!response.body) {
                 throw Error("No response body");
             }
@@ -259,25 +274,6 @@ const Chat = () => {
         } finally {
             setIsLoading(false);
         }
-    };
-
-    const handleUploadChatResponse = (chatResponse: ChatAppResponse) => {
-        // Add a user message indicating file upload, and then the AI's response
-        setAnswers((prevAnswers) => [...prevAnswers, ["File Uploaded", chatResponse]]);
-        // Scroll to the end of the chat after adding the new message
-        chatMessageStreamEnd.current?.scrollIntoView({ behavior: "smooth" });
-    };
-
-    const clearChat = () => {
-        lastQuestionRef.current = "";
-        error && setError(undefined);
-        setActiveCitation(undefined);
-        setActiveAnalysisPanelTab(undefined);
-        setAnswers([]);
-        setSpeechUrls([]);
-        setStreamedAnswers([]);
-        setIsLoading(false);
-        setIsStreaming(false);
     };
 
     useEffect(() => chatMessageStreamEnd.current?.scrollIntoView({ behavior: "smooth" }), [isLoading]);
@@ -392,8 +388,88 @@ const Chat = () => {
                 </div>
                 <div className={styles.commandsContainer}>
                     <ClearChatButton className={styles.commandButton} onClick={clearChat} disabled={!lastQuestionRef.current || isLoading} />
-                    {showUserUpload && <UploadFile className={styles.commandButton} disabled={!loggedIn} onUploadSuccess={handleUploadChatResponse} />}
-                    {/* <SettingsButton className={styles.commandButton} onClick={() => setIsConfigPanelOpen(!isConfigPanelOpen)} /> */}
+                    {showUserUpload && (
+                        <UploadFile 
+                            className={styles.commandButton} 
+                            disabled={!loggedIn || isLoading}
+                            shouldStream={shouldStream}
+                            onStreamResponse={async (stream) => {
+                                const question = "File uploaded and processed";
+                                setIsLoading(true);
+                                try {
+                                    // Use functional update to avoid stale closure
+                                    const response = await handleAsyncRequest(question, answers, stream);
+                                    setAnswers(prev => {
+                                        const updated: [string, ChatAppResponse][] = [...prev, [question, response]];
+                                        lastQuestionRef.current = question;
+                                        return updated;
+                                    });
+                                } finally {
+                                    setIsLoading(false);
+                                }
+                            }}
+                            onUploadResponse={async (response) => {
+                                const question = "File uploaded and processed";
+                                setIsLoading(true);
+                                try {
+                                    if (typeof response === 'object' && response !== null && 'getReader' in response) {
+                                        // Handle stream response
+                                        let answer = "";
+                                        let askResponse: ChatAppResponse = {} as ChatAppResponse;
+                                        setIsStreaming(true);
+                                        for await (const event of readNDJSONStream(response as ReadableStream<any>)) {
+                                            if (event["context"] && event["context"]["data_points"]) {
+                                                event["message"] = event["delta"];
+                                                askResponse = event as ChatAppResponse;
+                                            } else if (event["delta"] && event["delta"]["content"]) {
+                                                answer += event["delta"]["content"];
+                                                const latestResponse: ChatAppResponse = {
+                                                    ...askResponse,
+                                                    message: { content: answer, role: "assistant" },
+                                                    delta: { content: answer, role: "assistant" }
+                                                };
+                                                setStreamedAnswers(() => [[question, latestResponse]]);
+                                            }
+                                        }
+                                        setIsStreaming(false);
+                                        const finalResponse: ChatAppResponse = {
+                                            ...askResponse,
+                                            message: { content: answer || "No response content", role: "assistant" },
+                                            delta: { content: answer || "No response content", role: "assistant" },
+                                            context: askResponse.context || { data_points: [], followup_questions: null, thoughts: [] },
+                                            session_state: null
+                                        };
+                                        setAnswers(prev => {
+                                            const updated: [string, ChatAppResponse][] = [...prev, [question, finalResponse]];
+                                            lastQuestionRef.current = question;
+                                            return updated;
+                                        });
+                                        setStreamedAnswers([]);
+                                    } else {
+                                        // Handle non-stream response
+                                        const responseStr = typeof response === 'string' ? response : JSON.stringify(response);
+                                        const chatResponse: ChatAppResponse = {
+                                            message: { content: responseStr, role: "assistant" },
+                                            delta: { content: responseStr, role: "assistant" },
+                                            context: { data_points: [], followup_questions: null, thoughts: [] },
+                                            session_state: null
+                                        };
+                                        setAnswers(prev => {
+                                            const updated: [string, ChatAppResponse][] = [...prev, [question, chatResponse]];
+                                            lastQuestionRef.current = question;
+                                            return updated;
+                                        });
+                                    }
+                                } catch (error) {
+                                    console.error('Error processing upload response:', error);
+                                    setError(error);
+                                } finally {
+                                    setIsLoading(false);
+                                }
+                            }}
+                        />
+                    )}
+                    <SettingsButton className={styles.commandButton} onClick={() => setIsConfigPanelOpen(!isConfigPanelOpen)} />
                 </div>
             </div>
             <div className={styles.chatRoot} style={{ marginLeft: isHistoryPanelOpen ? "300px" : "0" }}>

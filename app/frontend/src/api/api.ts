@@ -1,3 +1,11 @@
+export async function submitDataApi(request: ChatAppRequest, idToken: string | undefined): Promise<Response> {
+    const headers = await getHeaders(idToken);
+    return await fetch(`/submit_data`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify(request)
+    });
+}
 const BACKEND_URI = "";
 
 import { ChatAppResponse, ChatAppResponseOrError, ChatAppRequest, Config, SimpleAPIResponse, HistoryListApiResponse, HistoryApiResponse } from "./models";
@@ -82,8 +90,12 @@ export function getCitationFilePath(citation: string): string {
     return `${BACKEND_URI}/content/${citation}`;
 }
 
-export async function uploadFileApi(request: FormData, idToken: string): Promise<SimpleAPIResponse> {
-    const response = await fetch("/upload", {
+export async function uploadFileApi(request: FormData, shouldStream: boolean, idToken: string): Promise<Response> {
+    let url = "/upload";
+    if (shouldStream) {
+        url += "/stream";
+    }
+    const response = await fetch(url, {
         method: "POST",
         headers: await getHeaders(idToken),
         body: request
@@ -93,8 +105,18 @@ export async function uploadFileApi(request: FormData, idToken: string): Promise
         throw new Error(`Uploading files failed: ${response.statusText}`);
     }
 
-    const dataResponse: SimpleAPIResponse = await response.json();
-    return dataResponse;
+    if (!shouldStream) {
+        const dataResponse: SimpleAPIResponse = await response.json();
+        return new Response(JSON.stringify(dataResponse));
+    }
+
+    // Return the stream response with the same structure as chat API
+    const transformedResponse = new Response(response.body, {
+        headers: {
+            'Content-Type': 'application/x-ndjson'
+        }
+    });
+    return transformedResponse;
 }
 
 export async function deleteUploadedFileApi(filename: string, idToken: string): Promise<SimpleAPIResponse> {

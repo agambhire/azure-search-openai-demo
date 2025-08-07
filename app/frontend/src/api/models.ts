@@ -102,6 +102,18 @@ export type Config = {
 
 export type SimpleAPIResponse = {
     message?: string;
+    answer?: string;
+    choices?: Array<{
+        message?: {
+            content?: string;
+        };
+    }>;
+    progress?: {
+        status: string;
+        percent?: number;
+        step?: string;
+    };
+    error?: string;
 };
 
 export interface SpeechConfig {
