@@ -13,6 +13,7 @@ import {
     RetrievalMode,
     ChatAppResponse,
     ChatAppResponseOrError,
+    submitDataApi,
     ChatAppRequest,
     ResponseMessage,
     VectorFieldOptions,
@@ -40,6 +41,7 @@ import { SubmitButton } from "../../components/SubmitButton";
 
 const Chat = () => {
     const [isConfigPanelOpen, setIsConfigPanelOpen] = useState(false);
+const [submitSuccessMessage, setSubmitSuccessMessage] = useState<string>("");
     const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
     const [promptTemplate, setPromptTemplate] = useState<string>("");
     const [temperature, setTemperature] = useState<number>(0.3);
@@ -174,6 +176,57 @@ const Chat = () => {
     };
 
     const client = useLogin ? useMsal().instance : undefined;
+
+    const handleSubmit = async () => {
+        const token = client ? await getToken(client) : undefined;
+
+        const messages: ResponseMessage[] = answers.flatMap(a => [
+            { content: a[0], role: "user" },
+            { content: a[1].message.content, role: "assistant" }
+        ]);
+
+        const request: ChatAppRequest = {
+            messages,
+            context: {
+                overrides: {
+                    prompt_template: promptTemplate.length === 0 ? undefined : promptTemplate,
+                    include_category: includeCategory.length === 0 ? undefined : includeCategory,
+                    exclude_category: excludeCategory.length === 0 ? undefined : excludeCategory,
+                    top: retrieveCount,
+                    temperature,
+                    minimum_reranker_score: minimumRerankerScore,
+                    minimum_search_score: minimumSearchScore,
+                    retrieval_mode: retrievalMode,
+                    semantic_ranker: useSemanticRanker,
+                    semantic_captions: useSemanticCaptions,
+                    query_rewriting: useQueryRewriting,
+                    reasoning_effort: reasoningEffort,
+                    suggest_followup_questions: useSuggestFollowupQuestions,
+                    use_oid_security_filter: useOidSecurityFilter,
+                    use_groups_security_filter: useGroupsSecurityFilter,
+                    vector_fields: vectorFieldList,
+                    use_gpt4v: useGPT4V,
+                    gpt4v_input: gpt4vInput,
+                    language: i18n.language,
+                    ...(seed !== null ? { seed } : {})
+                }
+            },
+            session_state: answers.length ? answers[answers.length - 1][1].session_state : null
+        };
+
+        try {
+            const response = await submitDataApi(request, token);
+            if (!response.ok) {
+                throw new Error(`Submit failed with status ${response.status}`);
+            }
+            const result = await response.json();
+            setSubmitSuccessMessage(result.message || "Successfully submitted.");
+        } catch (error) {
+            console.error("Submit error:", error);
+            setError(error);
+        }
+    };
+
     const { loggedIn } = useContext(LoginContext);
 
     const historyProvider: HistoryProviderOptions = (() => {
@@ -470,12 +523,14 @@ const Chat = () => {
                             }}
                         />
                     )}
-                    <SubmitButton className={styles.commandButton} />
+                    <SubmitButton className={styles.commandButton} onClick={handleSubmit} />
                     <SettingsButton className={styles.commandButton} onClick={() => setIsConfigPanelOpen(!isConfigPanelOpen)} />
                 </div>
             </div>
             <div className={styles.chatRoot} style={{ marginLeft: isHistoryPanelOpen ? "300px" : "0" }}>
                 <div className={styles.chatContainer}>
+{submitSuccessMessage && <div className={styles.successMessage}>{submitSuccessMessage}</div>}
+
                     {!lastQuestionRef.current ? (
                         <div className={styles.chatEmptyState}>
                             <img src={appLogo} alt="App logo" width="120" height="120" />
