@@ -1,4 +1,4 @@
-import { SubmitButton24Regular } from "@fluentui/react-icons";
+import { SendRegular } from "@fluentui/react-icons";
 import { Button } from "@fluentui/react-components";
 import { useTranslation } from "react-i18next";
 
@@ -13,7 +13,7 @@ export const SubmitButton = ({ className, onClick }: Props) => {
     const { t } = useTranslation();
     return (
         <div className={`${styles.container} ${className ?? ""}`}>
-            <Button icon={<SubmitButton24Regular />} onClick={onClick}>
+            <Button icon={<SendRegular />} >
                 {t("submit")}
             </Button>
         </div>
