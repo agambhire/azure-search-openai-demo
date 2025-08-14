@@ -38,10 +38,13 @@ import { LoginContext } from "../../loginContext";
 import { LanguagePicker } from "../../i18n/LanguagePicker";
 import { Settings } from "../../components/Settings/Settings";
 import { SubmitButton } from "../../components/SubmitButton";
+import  Popup  from "../../components/Popup";
 
 const Chat = () => {
+    const [isPopupOpen, setIsPopupOpen] = useState(false);
+    const [popupMessage, setPopupMessage] = useState("");
     const [isConfigPanelOpen, setIsConfigPanelOpen] = useState(false);
-const [submitSuccessMessage, setSubmitSuccessMessage] = useState<string>("");
+    const [submitSuccessMessage, setSubmitSuccessMessage] = useState<string>("");
     const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
     const [promptTemplate, setPromptTemplate] = useState<string>("");
     const [temperature, setTemperature] = useState<number>(0.3);
@@ -217,13 +220,19 @@ const [submitSuccessMessage, setSubmitSuccessMessage] = useState<string>("");
         try {
             const response = await submitDataApi(request, token);
             if (!response.ok) {
-                throw new Error(`Submit failed with status ${response.status}`);
+                //throw new Error(`Submit failed with status ${response.status}`);
+                setPopupMessage("No response from server");
+                setIsPopupOpen(true);
             }
             const result = await response.json();
-            setSubmitSuccessMessage(result.message || "Successfully submitted.");
+            setPopupMessage(result.message || "Successfully submitted.");
+            setIsPopupOpen(true);
+           // setSubmitSuccessMessage(result.message || "Successfully submitted.");
         } catch (error) {
             console.error("Submit error:", error);
             setError(error);
+            setPopupMessage("Something went wrong. Please try again.");
+            setIsPopupOpen(true);
         }
     };
 
@@ -689,6 +698,27 @@ const [submitSuccessMessage, setSubmitSuccessMessage] = useState<string>("");
                     />
                     {useLogin && <TokenClaimsDisplay />}
                 </Panel>
+            </div>
+            <div style={{ padding: "20px" }}>
+                <h2>Chat</h2>
+                <textarea
+                    rows={4}
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    placeholder="Type your message here..."
+                    style={{ width: "100%", marginBottom: "10px" }}
+                />
+
+                <br />
+
+                <button onClick={handleSubmit}>Send</button>
+
+                {/* Popup modal */}
+                <Popup
+                    isOpen={popupVisible}
+                    onClose={() => setPopupVisible(false)}
+                    message={popupMessage}
+                />
             </div>
         </div>
     );
