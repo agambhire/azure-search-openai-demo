@@ -41,8 +41,10 @@ import { SubmitButton } from "../../components/SubmitButton";
 import  Popup  from "../../components/Popup";
 
 const Chat = () => {
-    const [isPopupOpen, setIsPopupOpen] = useState(false);
+    const [inputValue, setInputValue] = useState("");
+    const [popupVisible, setPopupVisible] = useState(false);
     const [popupMessage, setPopupMessage] = useState("");
+    const [isPopupOpen, setIsPopupOpen] = useState(false);
     const [isConfigPanelOpen, setIsConfigPanelOpen] = useState(false);
     const [submitSuccessMessage, setSubmitSuccessMessage] = useState<string>("");
     const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);

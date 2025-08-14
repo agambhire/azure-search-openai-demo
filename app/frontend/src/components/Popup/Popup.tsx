@@ -1,25 +1,24 @@
 import React from "react";
-import styles from "./Popup.module.css";
+import styles from "./popup.module.css";
 
 interface PopupProps {
     isOpen: boolean;
     onClose: () => void;
-    children: React.ReactNode;
+    message: string; 
 }
 
-const Popup: React.FC<PopupProps> = ({ isOpen, onClose, children }) => {
+const Popup: React.FC<PopupProps> = ({ isOpen, onClose, message }) => {
     if (!isOpen) return null;
 
     return (
-        <div className={styles.container} onClick={onClose}>
-            <div
-                className={styles.content}
-                onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside
-            >
-                <button className={styles.closeButton} onClick={onClose}>
-                    
+        <div className={styles.overlay}>
+            <div className={styles.popup}>
+                <div className={styles.content}>
+                    <p>{message}</p>
+                </div>
+                <button onClick={onClose} className={styles.closeBtn}>
+                    Close
                 </button>
-                {children}
             </div>
         </div>
     );
