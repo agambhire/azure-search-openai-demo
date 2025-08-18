@@ -534,13 +534,20 @@ const Chat = () => {
                             }}
                         />
                     )}
+                    <div className={styles.commandsContainer}>
                     <SubmitButton className={styles.commandButton} onClick={handleSubmit} />
+                    <Popup
+                        isOpen={popupVisible}
+                        onClose={() => setPopupVisible(false)}
+                        message={popupMessage}
+                        />
+                    </div>
                     <SettingsButton className={styles.commandButton} onClick={() => setIsConfigPanelOpen(!isConfigPanelOpen)} />
                 </div>
             </div>
             <div className={styles.chatRoot} style={{ marginLeft: isHistoryPanelOpen ? "300px" : "0" }}>
                 <div className={styles.chatContainer}>
-{submitSuccessMessage && <div className={styles.successMessage}>{submitSuccessMessage}</div>}
+                {submitSuccessMessage && <div className={styles.successMessage}>{submitSuccessMessage}</div>}
 
                     {!lastQuestionRef.current ? (
                         <div className={styles.chatEmptyState}>
@@ -700,28 +707,8 @@ const Chat = () => {
                     />
                     {useLogin && <TokenClaimsDisplay />}
                 </Panel>
-            </div>
-            <div style={{ padding: "20px" }}>
-                <h2>Chat</h2>
-                <textarea
-                    rows={4}
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    placeholder="Type your message here..."
-                    style={{ width: "100%", marginBottom: "10px" }}
-                />
-
-                <br />
-
-                <button onClick={handleSubmit}>Send</button>
-
-                {/* Popup modal */}
-                <Popup
-                    isOpen={popupVisible}
-                    onClose={() => setPopupVisible(false)}
-                    message={popupMessage}
-                />
-            </div>
+            </div>     
+          
         </div>
     );
 };
