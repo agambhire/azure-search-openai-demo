@@ -44,7 +44,6 @@ const Chat = () => {
     const [inputValue, setInputValue] = useState("");
     const [popupVisible, setPopupVisible] = useState(false);
     const [popupMessage, setPopupMessage] = useState("");
-    const [isPopupOpen, setIsPopupOpen] = useState(false);
     const [isConfigPanelOpen, setIsConfigPanelOpen] = useState(false);
     const [submitSuccessMessage, setSubmitSuccessMessage] = useState<string>("");
     const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
@@ -222,19 +221,18 @@ const Chat = () => {
         try {
             const response = await submitDataApi(request, token);
             if (!response.ok) {
-                //throw new Error(`Submit failed with status ${response.status}`);
                 setPopupMessage("No response from server");
-                setIsPopupOpen(true);
+                setPopupVisible(true);
+                return;
             }
             const result = await response.json();
             setPopupMessage(result.message || "Successfully submitted.");
-            setIsPopupOpen(true);
-           // setSubmitSuccessMessage(result.message || "Successfully submitted.");
+            setPopupVisible(true);
         } catch (error) {
             console.error("Submit error:", error);
             setError(error);
             setPopupMessage("Something went wrong. Please try again.");
-            setIsPopupOpen(true);
+            setPopupVisible(true);
         }
     };
 
@@ -536,11 +534,16 @@ const Chat = () => {
                     )}
                     <div className={styles.commandsContainer}>
                     <SubmitButton className={styles.commandButton} onClick={handleSubmit} />
+                    {/* <SubmitButton 
+                        className={styles.commandButton + " " + styles.navyBlueButton} 
+                        onClick={handleSubmit} 
+                        disabled={!submitEnabled || isLoading}
+                    /> */}
                     <Popup
                         isOpen={popupVisible}
                         onClose={() => setPopupVisible(false)}
                         message={popupMessage}
-                        />
+                    />
                     </div>
                     <SettingsButton className={styles.commandButton} onClick={() => setIsConfigPanelOpen(!isConfigPanelOpen)} />
                 </div>
