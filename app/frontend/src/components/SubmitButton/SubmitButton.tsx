@@ -7,13 +7,18 @@ import styles from "./SubmitButton.module.css";
 interface Props {
     className?: string;
     onClick?: () => void; // made optional
+    disabled?: boolean;  
 }
 
-export const SubmitButton = ({ className, onClick }: Props) => {
+export const SubmitButton = ({ className, onClick, disabled }: Props) => {
     const { t } = useTranslation();
     return (
         <div className={`${styles.container} ${className ?? ""}`}>
-            <Button icon={<SendRegular />} onClick={onClick}>
+            <Button
+                icon={<SendRegular />}
+                onClick={onClick}
+                disabled={disabled}   
+            >
                 {t("submit")}
             </Button>
         </div>

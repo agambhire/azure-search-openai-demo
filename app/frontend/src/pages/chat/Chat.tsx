@@ -98,6 +98,7 @@ const Chat = () => {
     const [showChatHistoryCosmos, setShowChatHistoryCosmos] = useState<boolean>(false);
     const audio = useRef(new Audio()).current;
     const [isPlaying, setIsPlaying] = useState(false);
+    const [submitEnabled, setSubmitEnabled] = useState(false);
 
     const speechConfig: SpeechConfig = {
         speechUrls,
@@ -533,12 +534,7 @@ const Chat = () => {
                         />
                     )}
                     <div className={styles.commandsContainer}>
-                    <SubmitButton className={styles.commandButton} onClick={handleSubmit} />
-                    {/* <SubmitButton 
-                        className={styles.commandButton + " " + styles.navyBlueButton} 
-                        onClick={handleSubmit} 
-                        disabled={!submitEnabled || isLoading}
-                    /> */}
+                        <SubmitButton className={styles.commandButton} onClick={handleSubmit} disabled={!submitEnabled || isLoading} />
                     <Popup
                         isOpen={popupVisible}
                         onClose={() => setPopupVisible(false)}
