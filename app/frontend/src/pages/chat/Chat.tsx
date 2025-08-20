@@ -333,6 +333,7 @@ const Chat = () => {
                 }
             }
             setSpeechUrls([...speechUrls, null]);
+            setSubmitEnabled(true); // Enable submit button after chat response
         } catch (e) {
             setError(e);
         } finally {
@@ -480,7 +481,7 @@ const Chat = () => {
                                     const question = "File uploaded and processed";
                                     lastQuestionRef.current = question; // Set question for loading state
                                     setIsLoading(true);
-                                    setSubmitEnabled(true); // Reset before upload starts
+                                    setSubmitEnabled(false); // Reset before upload starts
                                     try {
                                         if (typeof response === 'object' && response !== null && 'getReader' in response) {
                                             // Handle stream response
@@ -530,14 +531,14 @@ const Chat = () => {
                                                 return updated;
                                             });
                                         }
-                                        console.log('Upload response received, enabling submit button');
-                                        setSubmitEnabled(true); // Enable SubmitButton only for upload API
+                                        setIsLoading(false);
+                                        setSubmitEnabled(true); // Enable SubmitButton after upload response
+                                        console.log('Upload API response: submitEnabled', true, 'isLoading', false);
                                     } catch (error) {
-                                        console.error('Error processing upload response:', error);
+                                        setIsLoading(false);
+                                        setSubmitEnabled(true);
+                                        console.log('Upload API error: submitEnabled', true, 'isLoading', false);
                                         setError(error);
-                                    } finally {
-                                        setIsLoading(true);
-                                        setSubmitEnabled(true); // Enable SubmitButton only for upload API
                                     }
                                 }}
                             />
