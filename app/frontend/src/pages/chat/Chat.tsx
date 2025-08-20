@@ -22,7 +22,7 @@ import {
 } from "../../api";
 import { Answer, AnswerError, AnswerLoading } from "../../components/Answer";
 import { QuestionInput } from "../../components/QuestionInput";
-import { ExampleList } from "../../components/Example";
+// ...existing code...
 import { UserChatMessage } from "../../components/UserChatMessage";
 import { AnalysisPanel, AnalysisPanelTabs } from "../../components/AnalysisPanel";
 import { HistoryPanel } from "../../components/HistoryPanel";
@@ -412,9 +412,7 @@ const Chat = () => {
         }
     };
 
-    const onExampleClicked = (example: string) => {
-        makeApiRequest(example);
-    };
+    // ...existing code...
 
     const onShowCitation = (citation: string, index: number) => {
         if (activeCitation === citation && activeAnalysisPanelTab === AnalysisPanelTabs.CitationTab && selectedAnswer === index) {
@@ -459,7 +457,6 @@ const Chat = () => {
                                 disabled={!loggedIn || isLoading}
                                 shouldStream={shouldStream}
                                 onStreamResponse={async (stream) => {
-                                    clearChat(); // Clear chat window on upload
                                     const question = "File uploaded and processed";
                                     lastQuestionRef.current = question; // Set question for loading state
                                     setIsLoading(true);
@@ -472,12 +469,14 @@ const Chat = () => {
                                             lastQuestionRef.current = question;
                                             return updated;
                                         });
-                                    } finally {
                                         setIsLoading(false);
+                                        setSubmitEnabled(true); // Enable submit button after upload response
+                                    } catch (e) {
+                                        setIsLoading(false);
+                                        setSubmitEnabled(true);
                                     }
                                 }}
                                 onUploadResponse={async (response) => {
-                                    clearChat(); // Clear chat window on upload
                                     const question = "File uploaded and processed";
                                     lastQuestionRef.current = question; // Set question for loading state
                                     setIsLoading(true);
@@ -566,10 +565,10 @@ const Chat = () => {
                             <img src={appLogo} alt="App logo" width="120" height="120" />
 
                             <h1 className={styles.chatEmptyStateTitle}>{t("chatEmptyStateTitle")}</h1>
-                            <h2 className={styles.chatEmptyStateSubtitle}>{t("chatEmptyStateSubtitle")}</h2>
+                            {/* <h2 className={styles.chatEmptyStateSubtitle}>{t("chatEmptyStateSubtitle")}</h2> */}
                             {showLanguagePicker && <LanguagePicker onLanguageChange={newLang => i18n.changeLanguage(newLang)} />}
 
-                            <ExampleList onExampleClicked={onExampleClicked} useGPT4V={useGPT4V} />
+                            {/* ExampleList removed as requested */}
                         </div>
                     ) : (
                         <div className={styles.chatMessageStream}>
