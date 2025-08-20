@@ -547,7 +547,10 @@ const Chat = () => {
                         <SubmitButton className={styles.commandButton} onClick={handleSubmit} disabled={!submitEnabled || isLoading} />
                     <Popup
                         isOpen={popupVisible}
-                        onClose={() => setPopupVisible(false)}
+                        onClose={() => {
+                            setPopupVisible(false);
+                            clearChat();
+                        }}
                         message={popupMessage}
                     />
                     </div>
