@@ -460,6 +460,7 @@ const Chat = () => {
                                 onStreamResponse={async (stream) => {
                                     clearChat(); // Clear chat window on upload
                                     const question = "File uploaded and processed";
+                                    lastQuestionRef.current = question; // Set question for loading state
                                     setIsLoading(true);
                                     setSubmitEnabled(false); // Reset before upload starts
                                     try {
@@ -477,6 +478,7 @@ const Chat = () => {
                                 onUploadResponse={async (response) => {
                                     clearChat(); // Clear chat window on upload
                                     const question = "File uploaded and processed";
+                                    lastQuestionRef.current = question; // Set question for loading state
                                     setIsLoading(true);
                                     setSubmitEnabled(true); // Reset before upload starts
                                     try {
@@ -613,7 +615,7 @@ const Chat = () => {
                                         </div>
                                     </div>
                                 ))}
-                            {isLoading && (
+                            {isLoading && lastQuestionRef.current && (
                                 <>
                                     <UserChatMessage message={lastQuestionRef.current} />
                                     <div className={styles.chatMessageGptMinWidth}>
