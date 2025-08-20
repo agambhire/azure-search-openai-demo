@@ -477,6 +477,7 @@ const Chat = () => {
                                 setIsLoading(true);
                                 try {
                                     if (typeof response === 'object' && response !== null && 'getReader' in response) {
+                                        setSubmitEnabled(true);   //  enable SubmitButton
                                         // Handle stream response
                                         let answer = "";
                                         let askResponse: ChatAppResponse = {} as ChatAppResponse;
