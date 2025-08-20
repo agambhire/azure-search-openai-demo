@@ -453,86 +453,92 @@ const Chat = () => {
                 <div className={styles.commandsContainer}>
                     <ClearChatButton className={styles.commandButton} onClick={clearChat} disabled={!lastQuestionRef.current || isLoading} />
                     {showUserUpload && (
-                        <UploadFile 
-                            className={styles.commandButton} 
-                            disabled={!loggedIn || isLoading}
-                            shouldStream={shouldStream}
-                            onStreamResponse={async (stream) => {
-                                const question = "File uploaded and processed";
-                                setIsLoading(true);
-                                try {
-                                    // Use functional update to avoid stale closure
-                                    const response = await handleAsyncRequest(question, answers, stream);
-                                    setAnswers(prev => {
-                                        const updated: [string, ChatAppResponse][] = [...prev, [question, response]];
-                                        lastQuestionRef.current = question;
-                                        return updated;
-                                    });
-                                } finally {
-                                    setIsLoading(false);
-                                }
-                            }}
-                            onUploadResponse={async (response) => {
-                                const question = "File uploaded and processed";
-                                setIsLoading(true);
-                                try {
-                                    if (typeof response === 'object' && response !== null && 'getReader' in response) {
-                                        setSubmitEnabled(true);   //  enable SubmitButton
-                                        // Handle stream response
-                                        let answer = "";
-                                        let askResponse: ChatAppResponse = {} as ChatAppResponse;
-                                        setIsStreaming(true);
-                                        for await (const event of readNDJSONStream(response as ReadableStream<any>)) {
-                                            if (event["context"] && event["context"]["data_points"]) {
-                                                event["message"] = event["delta"];
-                                                askResponse = event as ChatAppResponse;
-                                            } else if (event["delta"] && event["delta"]["content"]) {
-                                                answer += event["delta"]["content"];
-                                                const latestResponse: ChatAppResponse = {
-                                                    ...askResponse,
-                                                    message: { content: answer, role: "assistant" },
-                                                    delta: { content: answer, role: "assistant" }
-                                                };
-                                                setStreamedAnswers(() => [[question, latestResponse]]);
-                                            }
-                                        }
-                                        setIsStreaming(false);
-                                        const finalResponse: ChatAppResponse = {
-                                            ...askResponse,
-                                            message: { content: answer || "No response content", role: "assistant" },
-                                            delta: { content: answer || "No response content", role: "assistant" },
-                                            context: askResponse.context || { data_points: [], followup_questions: null, thoughts: [] },
-                                            session_state: null
-                                        };
+                            <UploadFile 
+                                className={styles.commandButton} 
+                                disabled={!loggedIn || isLoading}
+                                shouldStream={shouldStream}
+                                onStreamResponse={async (stream) => {
+                                    clearChat(); // Clear chat window on upload
+                                    const question = "File uploaded and processed";
+                                    setIsLoading(true);
+                                    setSubmitEnabled(false); // Reset before upload starts
+                                    try {
+                                        // Use functional update to avoid stale closure
+                                        const response = await handleAsyncRequest(question, answers, stream);
                                         setAnswers(prev => {
-                                            const updated: [string, ChatAppResponse][] = [...prev, [question, finalResponse]];
+                                            const updated: [string, ChatAppResponse][] = [...prev, [question, response]];
                                             lastQuestionRef.current = question;
                                             return updated;
                                         });
-                                        setStreamedAnswers([]);
-                                    } else {
-                                        // Handle non-stream response
-                                        const responseStr = typeof response === 'string' ? response : JSON.stringify(response);
-                                        const chatResponse: ChatAppResponse = {
-                                            message: { content: responseStr, role: "assistant" },
-                                            delta: { content: responseStr, role: "assistant" },
-                                            context: { data_points: [], followup_questions: null, thoughts: [] },
-                                            session_state: null
-                                        };
-                                        setAnswers(prev => {
-                                            const updated: [string, ChatAppResponse][] = [...prev, [question, chatResponse]];
-                                            lastQuestionRef.current = question;
-                                            return updated;
-                                        });
+                                    } finally {
+                                        setIsLoading(false);
                                     }
-                                } catch (error) {
-                                    console.error('Error processing upload response:', error);
-                                    setError(error);
-                                } finally {
-                                    setIsLoading(false);
-                                }
-                            }}
-                        />
+                                }}
+                                onUploadResponse={async (response) => {
+                                    clearChat(); // Clear chat window on upload
+                                    const question = "File uploaded and processed";
+                                    setIsLoading(true);
+                                    setSubmitEnabled(true); // Reset before upload starts
+                                    try {
+                                        if (typeof response === 'object' && response !== null && 'getReader' in response) {
+                                            // Handle stream response
+                                            let answer = "";
+                                            let askResponse: ChatAppResponse = {} as ChatAppResponse;
+                                            setIsStreaming(true);
+                                            for await (const event of readNDJSONStream(response as ReadableStream<any>)) {
+                                                if (event["context"] && event["context"]["data_points"]) {
+                                                    event["message"] = event["delta"];
+                                                    askResponse = event as ChatAppResponse;
+                                                } else if (event["delta"] && event["delta"]["content"]) {
+                                                    answer += event["delta"]["content"];
+                                                    const latestResponse: ChatAppResponse = {
+                                                        ...askResponse,
+                                                        message: { content: answer, role: "assistant" },
+                                                        delta: { content: answer, role: "assistant" }
+                                                    };
+                                                    setStreamedAnswers(() => [[question, latestResponse]]);
+                                                }
+                                            }
+                                            setIsStreaming(false);
+                                            const finalResponse: ChatAppResponse = {
+                                                ...askResponse,
+                                                message: { content: answer || "No response content", role: "assistant" },
+                                                delta: { content: answer || "No response content", role: "assistant" },
+                                                context: askResponse.context || { data_points: [], followup_questions: null, thoughts: [] },
+                                                session_state: null
+                                            };
+                                            setAnswers(prev => {
+                                                const updated: [string, ChatAppResponse][] = [...prev, [question, finalResponse]];
+                                                lastQuestionRef.current = question;
+                                                return updated;
+                                            });
+                                            setStreamedAnswers([]);
+                                        } else {
+                                            // Handle non-stream response
+                                            const responseStr = typeof response === 'string' ? response : JSON.stringify(response);
+                                            const chatResponse: ChatAppResponse = {
+                                                message: { content: responseStr, role: "assistant" },
+                                                delta: { content: responseStr, role: "assistant" },
+                                                context: { data_points: [], followup_questions: null, thoughts: [] },
+                                                session_state: null
+                                            };
+                                            setAnswers(prev => {
+                                                const updated: [string, ChatAppResponse][] = [...prev, [question, chatResponse]];
+                                                lastQuestionRef.current = question;
+                                                return updated;
+                                            });
+                                        }
+                                        console.log('Upload response received, enabling submit button');
+                                        setSubmitEnabled(true); // Enable SubmitButton only for upload API
+                                    } catch (error) {
+                                        console.error('Error processing upload response:', error);
+                                        setError(error);
+                                    } finally {
+                                        setIsLoading(true);
+                                        setSubmitEnabled(true); // Enable SubmitButton only for upload API
+                                    }
+                                }}
+                            />
                     )}
                     <div className={styles.commandsContainer}>
                         <SubmitButton className={styles.commandButton} onClick={handleSubmit} disabled={!submitEnabled || isLoading} />
