@@ -13,6 +13,7 @@ import {
     RetrievalMode,
     ChatAppResponse,
     ChatAppResponseOrError,
+    submitDataApi,
     ChatAppRequest,
     ResponseMessage,
     VectorFieldOptions,
@@ -21,7 +22,7 @@ import {
 } from "../../api";
 import { Answer, AnswerError, AnswerLoading } from "../../components/Answer";
 import { QuestionInput } from "../../components/QuestionInput";
-import { ExampleList } from "../../components/Example";
+// ...existing code...
 import { UserChatMessage } from "../../components/UserChatMessage";
 import { AnalysisPanel, AnalysisPanelTabs } from "../../components/AnalysisPanel";
 import { HistoryPanel } from "../../components/HistoryPanel";
@@ -36,9 +37,15 @@ import { TokenClaimsDisplay } from "../../components/TokenClaimsDisplay";
 import { LoginContext } from "../../loginContext";
 import { LanguagePicker } from "../../i18n/LanguagePicker";
 import { Settings } from "../../components/Settings/Settings";
+import { SubmitButton } from "../../components/SubmitButton";
+import  Popup  from "../../components/Popup";
 
 const Chat = () => {
+    const [inputValue, setInputValue] = useState("");
+    const [popupVisible, setPopupVisible] = useState(false);
+    const [popupMessage, setPopupMessage] = useState("");
     const [isConfigPanelOpen, setIsConfigPanelOpen] = useState(false);
+    const [submitSuccessMessage, setSubmitSuccessMessage] = useState<string>("");
     const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
     const [promptTemplate, setPromptTemplate] = useState<string>("");
     const [temperature, setTemperature] = useState<number>(0.3);
@@ -91,6 +98,7 @@ const Chat = () => {
     const [showChatHistoryCosmos, setShowChatHistoryCosmos] = useState<boolean>(false);
     const audio = useRef(new Audio()).current;
     const [isPlaying, setIsPlaying] = useState(false);
+    const [submitEnabled, setSubmitEnabled] = useState(false);
 
     const speechConfig: SpeechConfig = {
         speechUrls,
@@ -173,6 +181,62 @@ const Chat = () => {
     };
 
     const client = useLogin ? useMsal().instance : undefined;
+
+    const handleSubmit = async () => {
+        const token = client ? await getToken(client) : undefined;
+
+        const messages: ResponseMessage[] = answers.flatMap(a => [
+            { content: a[0], role: "user" },
+            { content: a[1].message.content, role: "assistant" }
+        ]);
+
+        const request: ChatAppRequest = {
+            messages,
+            context: {
+                overrides: {
+                    prompt_template: promptTemplate.length === 0 ? undefined : promptTemplate,
+                    include_category: includeCategory.length === 0 ? undefined : includeCategory,
+                    exclude_category: excludeCategory.length === 0 ? undefined : excludeCategory,
+                    top: retrieveCount,
+                    temperature,
+                    minimum_reranker_score: minimumRerankerScore,
+                    minimum_search_score: minimumSearchScore,
+                    retrieval_mode: retrievalMode,
+                    semantic_ranker: useSemanticRanker,
+                    semantic_captions: useSemanticCaptions,
+                    query_rewriting: useQueryRewriting,
+                    reasoning_effort: reasoningEffort,
+                    suggest_followup_questions: useSuggestFollowupQuestions,
+                    use_oid_security_filter: useOidSecurityFilter,
+                    use_groups_security_filter: useGroupsSecurityFilter,
+                    vector_fields: vectorFieldList,
+                    use_gpt4v: useGPT4V,
+                    gpt4v_input: gpt4vInput,
+                    language: i18n.language,
+                    ...(seed !== null ? { seed } : {})
+                }
+            },
+            session_state: answers.length ? answers[answers.length - 1][1].session_state : null
+        };
+
+        try {
+            const response = await submitDataApi(request, token);
+            if (!response.ok) {
+                setPopupMessage("No response from server");
+                setPopupVisible(true);
+                return;
+            }
+            const result = await response.json();
+            setPopupMessage(result.message || "Successfully submitted.");
+            setPopupVisible(true);
+        } catch (error) {
+            console.error("Submit error:", error);
+            setError(error);
+            setPopupMessage("Something went wrong. Please try again.");
+            setPopupVisible(true);
+        }
+    };
+
     const { loggedIn } = useContext(LoginContext);
 
     const historyProvider: HistoryProviderOptions = (() => {
@@ -269,6 +333,7 @@ const Chat = () => {
                 }
             }
             setSpeechUrls([...speechUrls, null]);
+            setSubmitEnabled(true); // Enable submit button after chat response
         } catch (e) {
             setError(e);
         } finally {
@@ -347,9 +412,7 @@ const Chat = () => {
         }
     };
 
-    const onExampleClicked = (example: string) => {
-        makeApiRequest(example);
-    };
+    // ...existing code...
 
     const onShowCitation = (citation: string, index: number) => {
         if (activeCitation === citation && activeAnalysisPanelTab === AnalysisPanelTabs.CitationTab && selectedAnswer === index) {
@@ -389,103 +452,126 @@ const Chat = () => {
                 <div className={styles.commandsContainer}>
                     <ClearChatButton className={styles.commandButton} onClick={clearChat} disabled={!lastQuestionRef.current || isLoading} />
                     {showUserUpload && (
-                        <UploadFile 
-                            className={styles.commandButton} 
-                            disabled={!loggedIn || isLoading}
-                            shouldStream={shouldStream}
-                            onStreamResponse={async (stream) => {
-                                const question = "File uploaded and processed";
-                                setIsLoading(true);
-                                try {
-                                    // Use functional update to avoid stale closure
-                                    const response = await handleAsyncRequest(question, answers, stream);
-                                    setAnswers(prev => {
-                                        const updated: [string, ChatAppResponse][] = [...prev, [question, response]];
-                                        lastQuestionRef.current = question;
-                                        return updated;
-                                    });
-                                } finally {
-                                    setIsLoading(false);
-                                }
-                            }}
-                            onUploadResponse={async (response) => {
-                                const question = "File uploaded and processed";
-                                setIsLoading(true);
-                                try {
-                                    if (typeof response === 'object' && response !== null && 'getReader' in response) {
-                                        // Handle stream response
-                                        let answer = "";
-                                        let askResponse: ChatAppResponse = {} as ChatAppResponse;
-                                        setIsStreaming(true);
-                                        for await (const event of readNDJSONStream(response as ReadableStream<any>)) {
-                                            if (event["context"] && event["context"]["data_points"]) {
-                                                event["message"] = event["delta"];
-                                                askResponse = event as ChatAppResponse;
-                                            } else if (event["delta"] && event["delta"]["content"]) {
-                                                answer += event["delta"]["content"];
-                                                const latestResponse: ChatAppResponse = {
-                                                    ...askResponse,
-                                                    message: { content: answer, role: "assistant" },
-                                                    delta: { content: answer, role: "assistant" }
-                                                };
-                                                setStreamedAnswers(() => [[question, latestResponse]]);
-                                            }
-                                        }
-                                        setIsStreaming(false);
-                                        const finalResponse: ChatAppResponse = {
-                                            ...askResponse,
-                                            message: { content: answer || "No response content", role: "assistant" },
-                                            delta: { content: answer || "No response content", role: "assistant" },
-                                            context: askResponse.context || { data_points: [], followup_questions: null, thoughts: [] },
-                                            session_state: null
-                                        };
+                            <UploadFile 
+                                className={styles.commandButton} 
+                                disabled={!loggedIn || isLoading}
+                                shouldStream={shouldStream}
+                                onStreamResponse={async (stream) => {
+                                    const question = "File uploaded and processed";
+                                    lastQuestionRef.current = question; // Set question for loading state
+                                    setIsLoading(true);
+                                    setSubmitEnabled(false); // Reset before upload starts
+                                    try {
+                                        // Use functional update to avoid stale closure
+                                        const response = await handleAsyncRequest(question, answers, stream);
                                         setAnswers(prev => {
-                                            const updated: [string, ChatAppResponse][] = [...prev, [question, finalResponse]];
+                                            const updated: [string, ChatAppResponse][] = [...prev, [question, response]];
                                             lastQuestionRef.current = question;
                                             return updated;
                                         });
-                                        setStreamedAnswers([]);
-                                    } else {
-                                        // Handle non-stream response
-                                        const responseStr = typeof response === 'string' ? response : JSON.stringify(response);
-                                        const chatResponse: ChatAppResponse = {
-                                            message: { content: responseStr, role: "assistant" },
-                                            delta: { content: responseStr, role: "assistant" },
-                                            context: { data_points: [], followup_questions: null, thoughts: [] },
-                                            session_state: null
-                                        };
-                                        setAnswers(prev => {
-                                            const updated: [string, ChatAppResponse][] = [...prev, [question, chatResponse]];
-                                            lastQuestionRef.current = question;
-                                            return updated;
-                                        });
+                                        setIsLoading(false);
+                                        setSubmitEnabled(true); // Enable submit button after upload response
+                                    } catch (e) {
+                                        setIsLoading(false);
+                                        setSubmitEnabled(true);
                                     }
-                                } catch (error) {
-                                    console.error('Error processing upload response:', error);
-                                    setError(error);
-                                } finally {
-                                    setIsLoading(false);
-                                }
-                            }}
-                        />
+                                }}
+                                onUploadResponse={async (response) => {
+                                    const question = "File uploaded and processed";
+                                    lastQuestionRef.current = question; // Set question for loading state
+                                    setIsLoading(true);
+                                    setSubmitEnabled(false); // Reset before upload starts
+                                    try {
+                                        if (typeof response === 'object' && response !== null && 'getReader' in response) {
+                                            // Handle stream response
+                                            let answer = "";
+                                            let askResponse: ChatAppResponse = {} as ChatAppResponse;
+                                            setIsStreaming(true);
+                                            for await (const event of readNDJSONStream(response as ReadableStream<any>)) {
+                                                if (event["context"] && event["context"]["data_points"]) {
+                                                    event["message"] = event["delta"];
+                                                    askResponse = event as ChatAppResponse;
+                                                } else if (event["delta"] && event["delta"]["content"]) {
+                                                    answer += event["delta"]["content"];
+                                                    const latestResponse: ChatAppResponse = {
+                                                        ...askResponse,
+                                                        message: { content: answer, role: "assistant" },
+                                                        delta: { content: answer, role: "assistant" }
+                                                    };
+                                                    setStreamedAnswers(() => [[question, latestResponse]]);
+                                                }
+                                            }
+                                            setIsStreaming(false);
+                                            const finalResponse: ChatAppResponse = {
+                                                ...askResponse,
+                                                message: { content: answer || "No response content", role: "assistant" },
+                                                delta: { content: answer || "No response content", role: "assistant" },
+                                                context: askResponse.context || { data_points: [], followup_questions: null, thoughts: [] },
+                                                session_state: null
+                                            };
+                                            setAnswers(prev => {
+                                                const updated: [string, ChatAppResponse][] = [...prev, [question, finalResponse]];
+                                                lastQuestionRef.current = question;
+                                                return updated;
+                                            });
+                                            setStreamedAnswers([]);
+                                        } else {
+                                            // Handle non-stream response
+                                            const responseStr = typeof response === 'string' ? response : JSON.stringify(response);
+                                            const chatResponse: ChatAppResponse = {
+                                                message: { content: responseStr, role: "assistant" },
+                                                delta: { content: responseStr, role: "assistant" },
+                                                context: { data_points: [], followup_questions: null, thoughts: [] },
+                                                session_state: null
+                                            };
+                                            setAnswers(prev => {
+                                                const updated: [string, ChatAppResponse][] = [...prev, [question, chatResponse]];
+                                                lastQuestionRef.current = question;
+                                                return updated;
+                                            });
+                                        }
+                                        setIsLoading(false);
+                                        setSubmitEnabled(true); // Enable SubmitButton after upload response
+                                        console.log('Upload API response: submitEnabled', true, 'isLoading', false);
+                                    } catch (error) {
+                                        setIsLoading(false);
+                                        setSubmitEnabled(true);
+                                        console.log('Upload API error: submitEnabled', true, 'isLoading', false);
+                                        setError(error);
+                                    }
+                                }}
+                            />
                     )}
-                    <SettingsButton className={styles.commandButton} onClick={() => setIsConfigPanelOpen(!isConfigPanelOpen)} />
+                    <div className={styles.commandsContainer}>
+                        <SubmitButton className={styles.commandButton} onClick={handleSubmit} disabled={!submitEnabled || isLoading} />
+                    <Popup
+                        isOpen={popupVisible}
+                        onClose={() => {
+                            setPopupVisible(false);
+                            clearChat();
+                        }}
+                        message={popupMessage}
+                    />
+                    </div>
+                    {/* <SettingsButton className={styles.commandButton} onClick={() => setIsConfigPanelOpen(!isConfigPanelOpen)} /> */}
                 </div>
             </div>
             <div className={styles.chatRoot} style={{ marginLeft: isHistoryPanelOpen ? "300px" : "0" }}>
                 <div className={styles.chatContainer}>
+                {submitSuccessMessage && <div className={styles.successMessage}>{submitSuccessMessage}</div>}
+
                     {!lastQuestionRef.current ? (
                         <div className={styles.chatEmptyState}>
                             <img src={appLogo} alt="App logo" width="120" height="120" />
 
                             <h1 className={styles.chatEmptyStateTitle}>{t("chatEmptyStateTitle")}</h1>
-                            <h2 className={styles.chatEmptyStateSubtitle}>{t("chatEmptyStateSubtitle")}</h2>
+                            {/* <h2 className={styles.chatEmptyStateSubtitle}>{t("chatEmptyStateSubtitle")}</h2> */}
                             {showLanguagePicker && <LanguagePicker onLanguageChange={newLang => i18n.changeLanguage(newLang)} />}
 
-                            <ExampleList onExampleClicked={onExampleClicked} useGPT4V={useGPT4V} />
+                            {/* ExampleList removed as requested */}
                         </div>
                     ) : (
-                        <div className={styles.chatMessageStream}>
+                        <div className={styles.chatMessageStream} style={{ maxHeight: '60vh', overflowY: 'auto' }}>
                             {isStreaming &&
                                 streamedAnswers.map((streamedAnswer, index) => (
                                     <div key={index}>
@@ -532,7 +618,7 @@ const Chat = () => {
                                         </div>
                                     </div>
                                 ))}
-                            {isLoading && (
+                            {isLoading && lastQuestionRef.current && (
                                 <>
                                     <UserChatMessage message={lastQuestionRef.current} />
                                     <div className={styles.chatMessageGptMinWidth}>
@@ -588,6 +674,7 @@ const Chat = () => {
                     />
                 )}
 
+                {/*
                 <Panel
                     headerText={t("labels.headerText")}
                     isOpen={isConfigPanelOpen}
@@ -632,7 +719,9 @@ const Chat = () => {
                     />
                     {useLogin && <TokenClaimsDisplay />}
                 </Panel>
-            </div>
+                */}
+            </div>     
+          
         </div>
     );
 };
