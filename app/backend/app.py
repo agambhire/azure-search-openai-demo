@@ -87,6 +87,7 @@ from config import (
     CONFIG_SPEECH_SERVICE_VOICE,
     CONFIG_STREAMING_ENABLED,
     CONFIG_USER_BLOB_CONTAINER_CLIENT,
+    CONFIG_AZURE_USERSTORAGE_CONTAINER_PATH,
     CONFIG_USER_UPLOAD_ENABLED,
     CONFIG_VECTOR_SEARCH_ENABLED,
 )
@@ -102,7 +103,9 @@ from prepdocs import (
 )
 from prepdocslib.filestrategy import UploadUserFileStrategy, FetchUserFileStrategy
 from prepdocslib.listfilestrategy import File
-from utils import extract_json_from_content, sections_to_documents, extract_document_name_from_content, upload_json_to_blob
+from utils import extract_json_from_content, extract_detected_category, \
+    sections_to_documents, extract_document_name_from_content, upload_json_to_blob, \
+    load_excel_mappings, transform_json_structure, get_disclaimer_content
 
 bp = Blueprint("routes", __name__, static_folder="static")
 # Fix Windows registry issue with mimetypes
@@ -314,6 +317,8 @@ async def submit_data(auth_claims: dict[str, Any]):
         request_json = await request.get_json()
         context = request_json.get("context", {})
         session_state = request_json.get("session_state")
+        context["overrides"] = context.get("overrides", {})
+        context["overrides"]["prompty_file"] = "chat_answer_question_for_json.prompty"
 
         if not auth_claims:
             return jsonify({"error": "Auth claim not provided, please login first..."}), 401
@@ -330,9 +335,12 @@ async def submit_data(auth_claims: dict[str, Any]):
         if not messages:
             return jsonify({"error": "No messages provided"}), 400
 
-        # Modify last message to trigger JSON generation
-        messages[-1]["content"] = "Generate JSON"
+        generate_json_msg = {
+            "content": "Generate JSON",
+            "role": "user"
+        }
 
+        messages.append(generate_json_msg)
         result = await make_chat(
             chat_approach,
             messages,
@@ -343,17 +351,38 @@ async def submit_data(auth_claims: dict[str, Any]):
         # Extract JSON from result
         try:
             content = result.get("message", {}).get("content", "")
-            document_name = extract_document_name_from_content(messages[1]["content"])
+
+            disclaimer_content = get_disclaimer_content(messages)
+            # if disclaimer_content:
+            document_name = extract_document_name_from_content(disclaimer_content)        
+            detected_category = extract_detected_category(disclaimer_content)
+            
             extracted_json = extract_json_from_content(content)
-            upload_status = await upload_json_to_blob(json_data=extracted_json, document_name=document_name, 
+            df_mappings = load_excel_mappings(r".\data\FriendlyNameMappings.xlsx")
+            extracted_json = transform_json_structure(extracted_json, df_mappings)
+
+            uploaded_file_path = current_app.config[CONFIG_AZURE_USERSTORAGE_CONTAINER_PATH] + "/" + auth_claims["oid"] + "/" + document_name
+            if isinstance(extracted_json, dict):
+                extracted_json["document_path"] = uploaded_file_path
+            else:
+                extracted_json_data = {}
+                extracted_json_data["records"] = extracted_json
+                extracted_json_data["document_path"] = uploaded_file_path
+                extracted_json = extracted_json_data
+            
+            extracted_json["detected_category"] = detected_category
+            extracted_json["user_oid"] = auth_claims["oid"]
+            upload_status = await upload_json_to_blob(json_data=extracted_json, document_name= auth_claims["oid"] + '_' + document_name, 
                                                 blob_container_client=current_app.config[CONFIG_BLOB_CONTAINER_CLIENT])
             if not upload_status:
                 return jsonify({"error": "Failed to upload JSON to blob"}), 500
+        except IndexError:
+            return jsonify({"error": "No JSON content found in the last message"}), 422
         except ValueError as ve:
-            return jsonify({"error": str(ve)}), 422
+            return jsonify({"message": str(ve), "context": ''}), 422
         
         current_app.logger.info("Successfully extracted JSON and uploaded to blob storage.")
-        return jsonify({"message": "Successfully submitted data for processing.", "context": result.get("context")}), 200
+        return jsonify({"message": "Successfully submitted data for Approval", "context": result.get("context")}), 200
 
     except Exception as error:
         return jsonify({"error": str(error)}), 500
@@ -381,12 +410,17 @@ async def chat_stream_on_payroll(auth_claims: dict[str, Any]):
             )
 
         use_gpt4v = context.get("overrides", {}).get("use_gpt4v", False)
-
         if use_gpt4v and CONFIG_CHAT_VISION_APPROACH in current_app.config:
             chat_approach = current_app.config[CONFIG_CHAT_VISION_APPROACH]
         else:
             chat_approach = current_app.config[CONFIG_CHAT_WITHOUT_AI_SEARCH_APPROACH]
         
+        current_app.logger.info("chat messages: %s", request_json["messages"])
+        
+        disclaimer_content = get_disclaimer_content(request_json["messages"])
+        if disclaimer_content:
+            context["overrides"]["file_name"]  = extract_document_name_from_content(disclaimer_content)
+
         result = await make_chat(
             chat_approach,
             request_json["messages"],
@@ -491,7 +525,6 @@ async def upload(auth_claims: dict[str, Any]):
             return jsonify({"message": "No file part in the request", "status": "failed"}), 400
 
         user_oid = auth_claims["oid"]
-        current_app.logger.info(f"OID - {user_oid}")
         file = request_files.getlist("file")[0]
         user_blob_container_client: FileSystemClient = current_app.config[CONFIG_USER_BLOB_CONTAINER_CLIENT]
         user_directory_client = user_blob_container_client.get_directory_client(user_oid)
@@ -517,28 +550,23 @@ async def upload(auth_claims: dict[str, Any]):
         # import fitz
         # with fitz.open(stream=file_io.read(), filetype="pdf") as doc:
         #     text = "\n".join(page.get_text() for page in doc)
-        #     print("Extracted PDF text:\n", text)
         #     file_io.seek(0)
         #     # results = await parser.fetch_file(File(content=stream, acls={"oids": [user_oid]}, url=file_client.url))
-        #     # print("Parsed document -", results)
         # file_io.seek(0)
 
-        current_app.logger.info("File %s uploaded successfully and the content is %s", file_io.name, file_io)
         current_app.logger.info("File URL - %s", file_client.url)
         # ingester: UploadUserFileStrategy = current_app.config[CONFIG_INGESTER]
         # await ingester.add_file(File(content=file_io, acls={"oids": [user_oid]}, url=file_client.url))
 
         parser: FetchUserFileStrategy = current_app.config[CONFIG_PARSER]
 
-        current_app.logger.info("1234 - Processing file %s with parser %s", file_io.name, parser)
         file_url = "https://eundgposbxsta02.blob.core.windows.net/user-content/f4c24c62-d8f6-417b-b310-b4f955a874a3/PP.pdf"
         results = await parser.fetch_file(File(content=file_io, acls={"oids": [user_oid]}, url=file_url, filename=file_io.name))
-        current_app.logger.info("1234 -File %s processed successfully", file_io.name)
 
         # Convert sections to documents
         current_app.logger.info("Converting sections to documents")
         documents = sections_to_documents(results, oids=user_oid)
-
+        
         context = {
             "overrides": {
                 "documents": documents
@@ -549,6 +577,10 @@ async def upload(auth_claims: dict[str, Any]):
         context["overrides"]["file_name"] = file_io.name
 
         chat_approach = current_app.config[CONFIG_CHAT_WITHOUT_AI_SEARCH_APPROACH]
+        session_state = create_session_id(
+            current_app.config[CONFIG_CHAT_HISTORY_COSMOS_ENABLED],
+            current_app.config[CONFIG_CHAT_HISTORY_BROWSER_ENABLED],
+        )
 
         messgaes = [
             {
@@ -557,10 +589,23 @@ async def upload(auth_claims: dict[str, Any]):
             }
         ]
 
-        session_state = create_session_id(
-            current_app.config[CONFIG_CHAT_HISTORY_COSMOS_ENABLED],
-            current_app.config[CONFIG_CHAT_HISTORY_BROWSER_ENABLED],
-        )
+        # # get categories
+        # context["overrides"]["prompty_file"] = "category_detection.prompty"
+        # category = await make_chat(
+        #     chat_approach,
+        #     messages=messgaes,
+        #     context=context,
+        #     session_state=session_state,
+        #     is_stream=False
+        # )
+        # current_app.logger.info("Category detection result: %s", category['message']['content'])
+        # context["overrides"]["category"] = category['message']['content']
+
+        # upload
+        if 'xlsx' in file_io.name.lower():
+            context["overrides"]["prompty_file"] = "chat_answer_question_excel.prompty"
+        else:
+            context["overrides"]["prompty_file"] = "chat_answer_question_data_extraction.prompty"
 
         result = await make_chat(
             chat_approach,
@@ -573,7 +618,6 @@ async def upload(auth_claims: dict[str, Any]):
         response = await make_response(format_as_ndjson(result))
         response.timeout = None  # type: ignore
         response.mimetype = "application/json-lines"
-        print("Response generated successfully", response)
         return response
         
     except Exception as error:
@@ -761,12 +805,12 @@ async def setup_clients():
             credential=azure_credential,
         )
         current_app.config[CONFIG_USER_BLOB_CONTAINER_CLIENT] = user_blob_container_client
-
+        current_app.config[CONFIG_AZURE_USERSTORAGE_CONTAINER_PATH] = f'https://{AZURE_USERSTORAGE_ACCOUNT}.dfs.core.windows.net/{AZURE_USERSTORAGE_CONTAINER}'
         # Set up ingester
         file_processors = setup_file_processors(
             azure_credential=azure_credential,
             document_intelligence_service=os.getenv("AZURE_DOCUMENTINTELLIGENCE_SERVICE"),
-            document_intelligence_key=os.getenv("AZURE_DOCUMENTINTELLIGENCE_KEY"),
+            document_intelligence_key=os.getenv("AZURE_DOCUMENTINTELLIGENCE_KEY", ""),
             local_pdf_parser=os.getenv("USE_LOCAL_PDF_PARSER", "").lower() == "true",
             local_html_parser=os.getenv("USE_LOCAL_HTML_PARSER", "").lower() == "true",
             search_images=USE_GPT4V,
@@ -856,7 +900,6 @@ async def setup_clients():
     current_app.config[CONFIG_OPENAI_CLIENT] = openai_client
     current_app.config[CONFIG_SEARCH_CLIENT] = search_client
     current_app.config[CONFIG_BLOB_CONTAINER_CLIENT] = blob_container_client
-    print("Blob container client set up:", blob_container_client)
     current_app.config[CONFIG_AUTH_CLIENT] = auth_helper
 
     current_app.config[CONFIG_GPT4V_DEPLOYED] = bool(USE_GPT4V)
