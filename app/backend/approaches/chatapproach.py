@@ -4,7 +4,8 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Awaitable
 from typing import Any, Optional, Union, cast
 
-from openai import AsyncStream
+from openai import AsyncStream, APITimeoutError
+
 from openai.types.chat import (
     ChatCompletion,
     ChatCompletionChunk,
@@ -16,6 +17,11 @@ from approaches.approach import (
     ExtraInfo,
 )
 
+import logging, os
+
+# Get the current file name without extension
+logger_name = os.path.splitext(os.path.basename(__file__))[0]
+logger = logging.getLogger(logger_name)
 
 class ChatApproach(Approach, ABC):
 
@@ -91,37 +97,42 @@ class ChatApproach(Approach, ABC):
 
         followup_questions_started = False
         followup_content = ""
-        async for event_chunk in await chat_coroutine:
-            # "2023-07-01-preview" API version has a bug where first response has empty choices
-            event = event_chunk.model_dump()  # Convert pydantic model to dict
-            if event["choices"]:
-                # No usage during streaming
-                completion = {
-                    "delta": {
-                        "content": event["choices"][0]["delta"].get("content"),
-                        "role": event["choices"][0]["delta"]["role"],
+        try:
+            async for event_chunk in await chat_coroutine:
+                # "2023-07-01-preview" API version has a bug where first response has empty choices
+                event = event_chunk.model_dump()  # Convert pydantic model to dict
+                if event["choices"]:
+                    # No usage during streaming
+                    completion = {
+                        "delta": {
+                            "content": event["choices"][0]["delta"].get("content"),
+                            "role": event["choices"][0]["delta"]["role"],
+                        }
                     }
-                }
-                # if event contains << and not >>, it is start of follow-up question, truncate
-                content = completion["delta"].get("content")
-                content = content or ""  # content may either not exist in delta, or explicitly be None
-                if overrides.get("suggest_followup_questions") and "<<" in content:
-                    followup_questions_started = True
-                    earlier_content = content[: content.index("<<")]
-                    if earlier_content:
-                        completion["delta"]["content"] = earlier_content
+                    # if event contains << and not >>, it is start of follow-up question, truncate
+                    content = completion["delta"].get("content")
+                    content = content or ""  # content may either not exist in delta, or explicitly be None
+                    if overrides.get("suggest_followup_questions") and "<<" in content:
+                        followup_questions_started = True
+                        earlier_content = content[: content.index("<<")]
+                        if earlier_content:
+                            completion["delta"]["content"] = earlier_content
+                            yield completion
+                        followup_content += content[content.index("<<") :]
+                    elif followup_questions_started:
+                        followup_content += content
+                    else:
                         yield completion
-                    followup_content += content[content.index("<<") :]
-                elif followup_questions_started:
-                    followup_content += content
                 else:
-                    yield completion
-            else:
-                # Final chunk at end of streaming should contain usage
-                # https://cookbook.openai.com/examples/how_to_stream_completions#4-how-to-get-token-usage-data-for-streamed-chat-completion-response
-                if event_chunk.usage and extra_info.thoughts and self.include_token_usage:
-                    extra_info.thoughts[-1].update_token_usage(event_chunk.usage)
-                    yield {"delta": {"role": "assistant"}, "context": extra_info, "session_state": session_state}
+                    # Final chunk at end of streaming should contain usage
+                    # https://cookbook.openai.com/examples/how_to_stream_completions#4-how-to-get-token-usage-data-for-streamed-chat-completion-response
+                    if event_chunk.usage and extra_info.thoughts and self.include_token_usage:
+                        extra_info.thoughts[-1].update_token_usage(event_chunk.usage)
+                        yield {"delta": {"role": "assistant"}, "context": extra_info, "session_state": session_state}
+        except APITimeoutError as e:
+            # Handle API timeout error gracefully
+            logger.error(f"API timeout error: {e}")
+            yield {"error": "API timeout occurred. Please try again later."}
 
         if followup_content:
             _, followup_questions = self.extract_followup_questions(followup_content)

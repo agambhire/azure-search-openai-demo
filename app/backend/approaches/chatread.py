@@ -23,8 +23,11 @@ from utils import get_file_name, sections_to_documents
 from prepdocslib.listfilestrategy import File
 from prepdocslib.searchmanager import Section
 
-import logging
-logger = logging.getLogger("scripts")
+import logging, os
+
+# Get the current file name without extension
+logger_name = os.path.splitext(os.path.basename(__file__))[0]
+logger = logging.getLogger(logger_name)
 
 class ChatReadApproach(ChatApproach):
     """
@@ -93,8 +96,11 @@ class ChatReadApproach(ChatApproach):
             text_sources = self.get_sources_content(documents, use_semantic_captions=False, use_image_citation=False)
 
         logger.info(f"File name: {overrides.get('file_name', '')}")
+        
+        prompty_file = overrides.get("prompty_file", "chat_answer_question.prompty")
+        self.answer_prompt = self.prompt_manager.load_prompt(prompty_file)
 
-        messages = self.prompt_manager.render_prompt(
+        chat_messages = self.prompt_manager.render_prompt(
             self.answer_prompt,
             self.get_system_prompt_variables(overrides.get("prompt_template"))
             | {
@@ -103,6 +109,7 @@ class ChatReadApproach(ChatApproach):
                 "user_query": original_user_query,
                 "text_sources": text_sources,
                 "file_name": overrides.get("file_name", ""),
+                # "category": overrides.get("category", ""),
             },
         )
 
@@ -111,9 +118,9 @@ class ChatReadApproach(ChatApproach):
             self.create_chat_completion(
                 self.chatgpt_deployment,
                 self.chatgpt_model,
-                messages,
+                chat_messages,
                 overrides,
-                self.get_response_token_limit(self.chatgpt_model, 1024),
+                self.get_response_token_limit(self.chatgpt_model, 8096),
                 should_stream,
             ),
         )
@@ -123,7 +130,7 @@ class ChatReadApproach(ChatApproach):
             thoughts=[
                 self.format_thought_step_for_chatcompletion(
                     title="Prompt to generate answer",
-                    messages=messages,
+                    messages=chat_messages,
                     overrides=overrides,
                     model=self.chatgpt_model,
                     deployment=self.chatgpt_deployment,
