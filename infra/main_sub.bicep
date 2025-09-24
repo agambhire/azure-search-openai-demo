@@ -480,7 +480,7 @@ module backend 'core/host/appservice.bicep' = if (deploymentTarget == 'appservic
   params: {
     name: !empty(backendServiceName) ? backendServiceName : '${abbrs.webSitesAppService}backend-${resourceToken}'
     location: location
-    tags: union(tags, { 'azd-service-name': 'backend' })
+    tags: union(tags, { 'azd-service-name': 'backend', 'azd-env-name':'ai-america-agambhire-raggpt' })
     // Need to check deploymentTarget again due to https://github.com/Azure/bicep/issues/3990
     appServicePlanId: deploymentTarget == 'appservice' ? appServicePlan.outputs.id : ''
     runtimeName: 'python'
